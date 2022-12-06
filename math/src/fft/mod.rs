@@ -18,6 +18,8 @@ use crate::{
 
 mod serial;
 
+mod fft_inputs;
+
 #[cfg(feature = "concurrent")]
 mod concurrent;
 
