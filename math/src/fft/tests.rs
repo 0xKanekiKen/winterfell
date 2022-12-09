@@ -18,46 +18,42 @@ use utils::collections::Vec;
 fn fft_in_place() {
     // degree 3
     let n = 4;
-    let mut binding = rand_vector(n);
-    let mut p = binding.as_mut_slice();
+    let mut p = rand_vector(n);
     let domain = build_domain(n);
-    let expected = polynom::eval_many(&p, &domain);
+    let expected = polynom::eval_many(p.as_mut_slice(), &domain);
     let twiddles = super::get_twiddles::<BaseElement>(n);
-    super::serial::fft_in_place(p, &twiddles, 1, 1, 0);
-    super::permute(&mut p);
+    super::serial::fft_in_place(p.as_mut_slice(), &twiddles, 1, 1, 0);
+    super::permute(p.as_mut_slice());
     assert_eq!(expected, p);
 
     // degree 7
     let n = 8;
-    let mut binding = rand_vector(n);
-    let mut p = binding.as_mut_slice();
+    let mut p = rand_vector(n);
     let domain = build_domain(n);
     let twiddles = super::get_twiddles::<BaseElement>(n);
-    let expected = polynom::eval_many(&p, &domain);
-    super::serial::fft_in_place(p, &twiddles, 1, 1, 0);
-    super::permute(&mut p);
+    let expected = polynom::eval_many(p.as_mut_slice(), &domain);
+    super::serial::fft_in_place(p.as_mut_slice(), &twiddles, 1, 1, 0);
+    super::permute(p.as_mut_slice());
     assert_eq!(expected, p);
 
     // degree 15
     let n = 16;
-    let mut binding = rand_vector(n);
-    let mut p = binding.as_mut_slice();
+    let mut p = rand_vector(n);
     let domain = build_domain(n);
     let twiddles = super::get_twiddles::<BaseElement>(16);
-    let expected = polynom::eval_many(&p, &domain);
-    super::serial::fft_in_place(p, &twiddles, 1, 1, 0);
-    super::permute(&mut p);
+    let expected = polynom::eval_many(p.as_mut_slice(), &domain);
+    super::serial::fft_in_place(p.as_mut_slice(), &twiddles, 1, 1, 0);
+    super::permute(p.as_mut_slice());
     assert_eq!(expected, p);
 
     // degree 1023
     let n = 1024;
-    let mut binding = rand_vector(n);
-    let mut p = binding.as_mut_slice();
+    let mut p = rand_vector(n);
     let domain = build_domain(n);
-    let expected = polynom::eval_many(&p, &domain);
+    let expected = polynom::eval_many(p.as_mut_slice(), &domain);
     let twiddles = super::get_twiddles::<BaseElement>(n);
-    super::serial::fft_in_place(p, &twiddles, 1, 1, 0);
-    super::permute(&mut p);
+    super::serial::fft_in_place(p.as_mut_slice(), &twiddles, 1, 1, 0);
+    super::permute(p.as_mut_slice());
     assert_eq!(expected, p);
 }
 

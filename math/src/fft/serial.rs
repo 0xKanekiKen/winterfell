@@ -71,8 +71,8 @@ where
     I: FftInputs<B> + ?Sized,
 {
     fft_in_place(evaluations, inv_twiddles, 1, 1, 0);
-    let mut offset = B::inv((evaluations.len() as u64).into());
-    I::interpolate(evaluations, B::ONE, &mut offset);
+    let offset = B::inv((evaluations.len() as u64).into());
+    evaluations.shift_by(offset);
     permute(evaluations);
 }
 
@@ -86,8 +86,9 @@ where
 {
     fft_in_place(evaluations, inv_twiddles, 1, 1, 0);
     permute(evaluations);
-    let mut offset = B::inv((evaluations.len() as u64).into());
-    I::interpolate(evaluations, domain_offset, &mut offset)
+    let domain_offset = B::inv(domain_offset);
+    let offset = B::inv((evaluations.len() as u64).into());
+    evaluations.shift_by_series(offset, domain_offset);
 }
 
 // PERMUTATIONS
