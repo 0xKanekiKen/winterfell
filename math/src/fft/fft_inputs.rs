@@ -1,5 +1,5 @@
 use crate::FieldElement;
-use core::cmp;
+use core::{cmp, mem::transmute, slice::ChunksMut};
 
 // FFTINPUTS TRAIT
 // ================================================================================================
@@ -114,7 +114,13 @@ impl<'a, E: FieldElement> FftInputs<E> for &'a mut [E] {
     }
 
     fn mut_chunks(&mut self, chunk_size: usize) -> Self::ChunksMut {
-        unsafe { std::mem::transmute(self.chunks_mut(chunk_size)) }
+        let chunks = <[E]>::chunks_mut(self, chunk_size);
+        // Safety: this conversion is safe because `&'a mut [T]: 'a`; the only way to express that
+        // is to leak the lifetime of `FftInputs`, and that is undesirable since it will create
+        // unnecessary complexity for the users of the trait.
+        //
+        // We are using transmute to guarantee this conversion is noop.
+        unsafe { transmute::<ChunksMut<'_, E>, ChunksMut<'a, E>>(chunks) }
     }
 }
 
@@ -229,7 +235,13 @@ impl<'a, E: FieldElement> FftInputs<E> for &'a mut MatrixChunks<'a, E> {
     }
 
     fn mut_chunks(&mut self, chunk_size: usize) -> Self::ChunksMut {
-        unsafe { std::mem::transmute(self.chunks_mut(chunk_size)) }
+        let chunks = <MatrixChunks<E>>::chunks_mut(self, chunk_size);
+        // Safety: this conversion is safe because `&'a mut [T]: 'a`; the only way to express that
+        // is to leak the lifetime of `FftInputs`, and that is undesirable since it will create
+        // unnecessary complexity for the users of the trait.
+        //
+        // We are using transmute to guarantee this conversion is noop.
+        unsafe { transmute::<MatrixChunksMut<'_, E>, MatrixChunksMut<'a, E>>(chunks) }
     }
 }
 
