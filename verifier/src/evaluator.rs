@@ -59,7 +59,7 @@ pub fn evaluate_constraints<A: Air, E: FieldElement<BaseField = A::BaseField>>(
     // 2 ----- evaluate boundary constraints ------------------------------------------------------
 
     // get boundary constraints grouped by common divisor from the AIR
-    let b_constraints =
+    let mut b_constraints =
         air.get_boundary_constraints(&aux_rand_elements, &composition_coefficients.boundary);
 
     // cache power of x here so that we only re-compute it when degree_adjustment changes
@@ -69,7 +69,7 @@ pub fn evaluate_constraints<A: Air, E: FieldElement<BaseField = A::BaseField>>(
     // iterate over boundary constraint groups for the main trace segment (each group has a
     // distinct divisor), evaluate constraints in each group and add their combination to the
     // result
-    for group in b_constraints.main_constraints().iter() {
+    for group in b_constraints.main_constraints().iter_mut() {
         // if adjustment degree hasn't changed, no need to recompute `xp` - so just reuse the
         // previous value; otherwise, compute new `xp`
         if group.degree_adjustment() != degree_adjustment {
@@ -84,7 +84,7 @@ pub fn evaluate_constraints<A: Air, E: FieldElement<BaseField = A::BaseField>>(
     // distinct divisor), evaluate constraints in each group and add their combination to the
     // result
     if let Some(aux_trace_frame) = aux_trace_frame {
-        for group in b_constraints.aux_constraints().iter() {
+        for group in b_constraints.aux_constraints().iter_mut() {
             // if adjustment degree hasn't changed, no need to recompute `xp` - so just reuse the
             // previous value; otherwise, compute new `xp`
             if group.degree_adjustment() != degree_adjustment {

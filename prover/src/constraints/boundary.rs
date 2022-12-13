@@ -3,6 +3,8 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
+use core::borrow::BorrowMut;
+
 use super::StarkDomain;
 use air::{Air, AuxTraceRandElements, ConstraintDivisor};
 use math::{fft, ExtensionOf, FieldElement};
@@ -37,7 +39,7 @@ impl<E: FieldElement> BoundaryConstraints<E> {
         composition_coefficients: &[(E, E)],
     ) -> Self {
         // get constraints from the AIR instance
-        let source = air.get_boundary_constraints(aux_rand_elements, composition_coefficients);
+        let mut source = air.get_boundary_constraints(aux_rand_elements, composition_coefficients);
 
         // initialize a map of twiddles here so that we can keep track of already computed
         // twiddles; this helps us avoid building twiddles over and over again for constraints
@@ -49,8 +51,8 @@ impl<E: FieldElement> BoundaryConstraints<E> {
         // constraints
         let mut result = source
             .main_constraints()
-            .iter()
-            .map(|group| {
+            .iter_mut()
+            .map(|mut group| {
                 BoundaryConstraintGroup::from_main_constraints(group, air, &mut twiddle_map)
             })
             .collect::<Vec<BoundaryConstraintGroup<E>>>();
@@ -179,7 +181,7 @@ impl<E: FieldElement> BoundaryConstraintGroup<E> {
     /// Twiddles and [Air] instance are passed in for evaluating large polynomial constraints
     /// (if any).
     pub fn from_main_constraints<A: Air<BaseField = E::BaseField>>(
-        source: &air::BoundaryConstraintGroup<E::BaseField, E>,
+        source: &mut air::BoundaryConstraintGroup<E::BaseField, E>,
         air: &A,
         twiddle_map: &mut BTreeMap<usize, Vec<E::BaseField>>,
     ) -> Self {
@@ -212,7 +214,7 @@ impl<E: FieldElement> BoundaryConstraintGroup<E> {
     /// Twiddles and [Air] instance are passed in for evaluating large polynomial constraints
     /// (if any).
     pub fn from_aux_constraints<A: Air<BaseField = E::BaseField>>(
-        group: &air::BoundaryConstraintGroup<E, E>,
+        group: &mut air::BoundaryConstraintGroup<E, E>,
         air: &A,
         twiddle_map: &mut BTreeMap<usize, Vec<E::BaseField>>,
     ) -> Self {
@@ -238,7 +240,7 @@ impl<E: FieldElement> BoundaryConstraintGroup<E> {
     /// Panics if the divisor of the provided constraints doesn't match the divisor of this group.
     pub fn add_aux_constraints<A: Air<BaseField = E::BaseField>>(
         &mut self,
-        group: &air::BoundaryConstraintGroup<E, E>,
+        group: &mut air::BoundaryConstraintGroup<E, E>,
         air: &A,
         twiddle_map: &mut BTreeMap<usize, Vec<E::BaseField>>,
     ) {
@@ -347,7 +349,7 @@ where
 {
     /// Returns an new instance of [SingleValueConstraint] created from the specified source
     /// boundary constraint.
-    pub fn new(source: &air::BoundaryConstraint<F, E>) -> Self {
+    pub fn new(source: &mut air::BoundaryConstraint<F, E>) -> Self {
         debug_assert!(source.poly().len() == 1, "not a single constraint");
         Self {
             column: source.column(),
@@ -390,7 +392,7 @@ where
 {
     /// Returns an new instance of [SmallPolyConstraint] created from the specified source
     /// boundary constraint.
-    pub fn new(source: &air::BoundaryConstraint<F, E>) -> Self {
+    pub fn new(source: &mut air::BoundaryConstraint<F, E>) -> Self {
         debug_assert!(
             source.poly().len() > 1 && source.poly().len() < SMALL_POLY_DEGREE,
             "not a small poly constraint"
@@ -446,7 +448,7 @@ where
     /// Returns a new instance of [LargePolyConstraint] created from the specified source
     /// boundary constraint.
     pub fn new<A: Air<BaseField = F::BaseField>>(
-        source: &air::BoundaryConstraint<F, E>,
+        source: &mut air::BoundaryConstraint<F, E>,
         air: &A,
         twiddle_map: &mut BTreeMap<usize, Vec<F::BaseField>>,
     ) -> Self {

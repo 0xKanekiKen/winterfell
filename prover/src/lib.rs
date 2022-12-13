@@ -310,7 +310,7 @@ pub trait Prover {
         //   trace_length - 1
         #[cfg(feature = "std")]
         let now = Instant::now();
-        let composition_poly = constraint_evaluations.into_poly()?;
+        let mut composition_poly = constraint_evaluations.into_poly()?;
         #[cfg(feature = "std")]
         debug!(
             "Converted constraint evaluations into {} composition polynomial columns of degree {} in {} ms",
@@ -321,7 +321,7 @@ pub trait Prover {
 
         // then, build a commitment to the evaluations of the composition polynomial columns
         let constraint_commitment =
-            self.build_constraint_commitment::<E>(&composition_poly, &domain);
+            self.build_constraint_commitment::<E>(&mut composition_poly, &domain);
 
         // then, commit to the evaluations of constraints by writing the root of the constraint
         // Merkle tree into the channel
@@ -465,7 +465,7 @@ pub trait Prover {
         // extend the execution trace
         #[cfg(feature = "std")]
         let now = Instant::now();
-        let trace_polys = trace.interpolate_columns();
+        let mut trace_polys = trace.interpolate_columns();
         let trace_lde = trace_polys.evaluate_columns_over(domain);
         #[cfg(feature = "std")]
         debug!(
@@ -501,7 +501,7 @@ pub trait Prover {
     /// a Merkle tree from the resulting hashes.
     fn build_constraint_commitment<E>(
         &self,
-        composition_poly: &CompositionPoly<E>,
+        composition_poly: &mut CompositionPoly<E>,
         domain: &StarkDomain<Self::BaseField>,
     ) -> ConstraintCommitment<E, Self::HashFn>
     where

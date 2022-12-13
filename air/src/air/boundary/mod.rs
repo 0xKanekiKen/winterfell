@@ -133,14 +133,14 @@ impl<E: FieldElement> BoundaryConstraints<E> {
 
     /// Returns a reference to the boundary constraints against the main segment of an execution
     /// trace. The constraints are grouped by their divisors.
-    pub fn main_constraints(&self) -> &[BoundaryConstraintGroup<E::BaseField, E>] {
-        &self.main_constraints
+    pub fn main_constraints(&mut self) -> &mut [BoundaryConstraintGroup<E::BaseField, E>] {
+        &mut self.main_constraints
     }
 
     /// Returns a reference to the boundary constraints against auxiliary segments of an execution
     /// trace. The constraints are grouped by their divisors.
-    pub fn aux_constraints(&self) -> &[BoundaryConstraintGroup<E, E>] {
-        &self.aux_constraints
+    pub fn aux_constraints(&mut self) -> &mut [BoundaryConstraintGroup<E, E>] {
+        &mut self.aux_constraints
     }
 }
 

@@ -16,14 +16,15 @@ use crate::{
     utils::{get_power_series, log2},
 };
 
-mod fft_inputs;
-mod serial;
+pub mod fft_inputs;
+pub mod serial;
 
 #[cfg(feature = "concurrent")]
 mod concurrent;
 
-use utils::collections::Vec;
+use utils::{collections::Vec, uninit_vector};
 
+mod test_matrix;
 #[cfg(test)]
 mod tests;
 
@@ -81,7 +82,7 @@ const MIN_CONCURRENT_SIZE: usize = 1024;
 ///
 /// assert_eq!(expected, p);
 /// ```
-pub fn evaluate_poly<B, E>(p: &mut [E], twiddles: &[B])
+pub fn evaluate_poly<B, E>(mut p: &mut [E], twiddles: &[B])
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
@@ -109,7 +110,7 @@ where
         #[cfg(feature = "concurrent")]
         concurrent::evaluate_poly(p, twiddles);
     } else {
-        serial::evaluate_poly(p, twiddles);
+        serial::evaluate_poly(&mut p, twiddles);
     }
 }
 
@@ -168,7 +169,7 @@ where
 /// assert_eq!(expected, actual);
 /// ```
 pub fn evaluate_poly_with_offset<B, E>(
-    p: &[E],
+    p: &mut [E],
     twiddles: &[B],
     domain_offset: B,
     blowup_factor: usize,
@@ -199,9 +200,7 @@ where
     );
     assert_ne!(domain_offset, B::ZERO, "domain offset cannot be zero");
 
-    // assign a dummy value here to make the compiler happy
-    #[allow(unused_assignments)]
-    let mut result = Vec::new();
+    let mut result = unsafe { uninit_vector(p.len() * blowup_factor) };
 
     // when `concurrent` feature is enabled, run the concurrent version of the function; unless
     // the polynomial is small, then don't bother with the concurrent version
@@ -212,7 +211,13 @@ where
                 concurrent::evaluate_poly_with_offset(p, twiddles, domain_offset, blowup_factor);
         }
     } else {
-        result = serial::evaluate_poly_with_offset(p, twiddles, domain_offset, blowup_factor);
+        serial::evaluate_poly_with_offset(
+            &p,
+            twiddles,
+            domain_offset,
+            blowup_factor,
+            &mut result.as_mut_slice(),
+        );
     }
 
     result
@@ -270,7 +275,7 @@ where
 ///
 /// assert_eq!(p, ys);
 /// ```
-pub fn interpolate_poly<B, E>(evaluations: &mut [E], inv_twiddles: &[B])
+pub fn interpolate_poly<B, E>(mut evaluations: &mut [E], inv_twiddles: &[B])
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
@@ -299,7 +304,7 @@ where
         #[cfg(feature = "concurrent")]
         concurrent::interpolate_poly(evaluations, inv_twiddles);
     } else {
-        serial::interpolate_poly(evaluations, inv_twiddles);
+        serial::interpolate_poly(&mut evaluations, inv_twiddles);
     }
 }
 
@@ -359,7 +364,7 @@ where
 /// assert_eq!(p, ys);
 /// ```
 pub fn interpolate_poly_with_offset<B, E>(
-    evaluations: &mut [E],
+    mut evaluations: &mut [E],
     inv_twiddles: &[B],
     domain_offset: B,
 ) where
@@ -391,7 +396,7 @@ pub fn interpolate_poly_with_offset<B, E>(
         #[cfg(feature = "concurrent")]
         concurrent::interpolate_poly_with_offset(evaluations, inv_twiddles, domain_offset);
     } else {
-        serial::interpolate_poly_with_offset(evaluations, inv_twiddles, domain_offset);
+        serial::interpolate_poly_with_offset(&mut evaluations, inv_twiddles, domain_offset);
     }
 }
 
@@ -412,7 +417,7 @@ pub fn interpolate_poly_with_offset<B, E>(
 /// * Length of `values` is not a power of two.
 /// * Length of `twiddles` is not `values.len()` / 2.
 /// * Field specified by `B` does not contain a multiplicative subgroup of size `values.len()`.
-pub fn serial_fft<B, E>(values: &mut [E], twiddles: &[B])
+pub fn serial_fft<B, E>(mut values: &mut [E], twiddles: &[B])
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
@@ -434,8 +439,8 @@ where
         "multiplicative subgroup of size {} does not exist in the specified base field",
         values.len()
     );
-    serial::fft_in_place(values, twiddles, 1, 1, 0);
-    serial::permute(values);
+    serial::fft_in_place(&mut values, twiddles, 1, 1, 0);
+    serial::permute(&mut values);
 }
 
 // TWIDDLES
@@ -590,7 +595,13 @@ fn permute<E: FieldElement>(v: &mut [E]) {
         #[cfg(feature = "concurrent")]
         concurrent::permute(v);
     } else {
-        serial::permute(v);
+        let n = v.len();
+        for i in 0..n {
+            let j = permute_index(n, i);
+            if j > i {
+                v.swap(i, j);
+            }
+        }
     }
 }
 
