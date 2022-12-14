@@ -3,6 +3,8 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
+use core::borrow::BorrowMut;
+
 use super::fft_inputs::FftInputs;
 use crate::{field::StarkField, utils::log2, FieldElement};
 
@@ -15,7 +17,7 @@ const MAX_LOOP: usize = 256;
 
 /// Evaluates polynomial `p` in-place over the domain of length `p.len()` in the field specified
 /// by `B` using the FFT algorithm.
-pub fn evaluate_poly<B, E, I>(p: &mut I, twiddles: &[B])
+pub fn evaluate_poly<B, E, I>(p: I, twiddles: &[B])
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
@@ -28,11 +30,11 @@ where
 /// Evaluates polynomial `p` over the domain of length `p.len()` * `blowup_factor` shifted by
 /// `domain_offset` in the field specified `B` using the FFT algorithm and returns the result.
 pub fn evaluate_poly_with_offset<B, E, I>(
-    p: &I,
+    p: I,
     twiddles: &[B],
     domain_offset: B,
     blowup_factor: usize,
-    result: &mut I,
+    result: I,
 ) where
     B: StarkField,
     E: FieldElement<BaseField = B>,
@@ -44,13 +46,14 @@ pub fn evaluate_poly_with_offset<B, E, I>(
         .mut_chunks(p.size())
         .enumerate()
         .for_each(|(i, mut chunk)| {
+            let chunk = chunk.borrow_mut();
             // convert chunk into Fftinputs. This is safe because we know that the chunk is
             // the same size as the input.
             let idx = super::permute_index(blowup_factor, i) as u64;
             let offset = g.exp(idx.into()) * domain_offset;
             let factor = B::ONE;
-            chunk.clone_and_shift_by(p, factor, offset);
-            fft_in_place(&mut chunk, twiddles, 1, 1, 0);
+            chunk.clone_and_shift_by(&p, factor, offset);
+            fft_in_place(*chunk, twiddles, 1, 1, 0);
         });
 
     permute(result);
@@ -61,7 +64,7 @@ pub fn evaluate_poly_with_offset<B, E, I>(
 
 /// Interpolates `evaluations` over a domain of length `evaluations.len()` in the field specified
 /// `B` into a polynomial in coefficient form using the FFT algorithm.
-pub fn interpolate_poly<B, E, I>(evaluations: &mut I, inv_twiddles: &[B])
+pub fn interpolate_poly<B, E, I>(evaluations: I, inv_twiddles: &[B])
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
@@ -76,11 +79,8 @@ where
 /// Interpolates `evaluations` over a domain of length `evaluations.len()` and shifted by
 /// `domain_offset` in the field specified by `B` into a polynomial in coefficient form using
 /// the FFT algorithm.
-pub fn interpolate_poly_with_offset<B, E, I>(
-    evaluations: &mut I,
-    inv_twiddles: &[B],
-    domain_offset: B,
-) where
+pub fn interpolate_poly_with_offset<B, E, I>(evaluations: I, inv_twiddles: &[B], domain_offset: B)
+where
     B: StarkField,
     E: FieldElement<BaseField = B>,
     I: FftInputs<E> + ?Sized,
@@ -95,7 +95,7 @@ pub fn interpolate_poly_with_offset<B, E, I>(
 // PERMUTATIONS
 // ================================================================================================
 
-pub fn permute<B, E, I>(values: &mut I)
+pub fn permute<B, E, I>(values: I)
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
@@ -117,7 +117,7 @@ where
 ///
 /// Adapted from: https://github.com/0xProject/OpenZKP/tree/master/algebra/primefield/src/fft
 pub(super) fn fft_in_place<B, E, I>(
-    values: &mut I,
+    values: I,
     twiddles: &[B],
     count: usize,
     stride: usize,
@@ -143,7 +143,7 @@ pub(super) fn fft_in_place<B, E, I>(
     }
 
     for offset in offset..(offset + count) {
-        I::butterfly(values, offset, stride);
+        I::butterfly(&mut values, offset, stride);
     }
 
     let last_offset = offset + size * stride;
@@ -153,7 +153,7 @@ pub(super) fn fft_in_place<B, E, I>(
         .skip(1)
     {
         for j in offset..(offset + count) {
-            I::butterfly_twiddle(values, twiddles[i], j, stride);
+            I::butterfly_twiddle(&mut values, twiddles[i], j, stride);
         }
     }
 }

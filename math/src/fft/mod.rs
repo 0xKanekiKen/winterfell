@@ -82,7 +82,7 @@ const MIN_CONCURRENT_SIZE: usize = 1024;
 ///
 /// assert_eq!(expected, p);
 /// ```
-pub fn evaluate_poly<B, E>(mut p: &mut [E], twiddles: &[B])
+pub fn evaluate_poly<B, E, I>(p: &mut [E], twiddles: &[B])
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
@@ -110,7 +110,7 @@ where
         #[cfg(feature = "concurrent")]
         concurrent::evaluate_poly(p, twiddles);
     } else {
-        serial::evaluate_poly(&mut p, twiddles);
+        serial::evaluate_poly(p, twiddles);
     }
 }
 
@@ -212,7 +212,7 @@ where
         }
     } else {
         serial::evaluate_poly_with_offset(
-            &p,
+            p,
             twiddles,
             domain_offset,
             blowup_factor,
@@ -275,7 +275,7 @@ where
 ///
 /// assert_eq!(p, ys);
 /// ```
-pub fn interpolate_poly<B, E>(mut evaluations: &mut [E], inv_twiddles: &[B])
+pub fn interpolate_poly<B, E>(evaluations: &mut [E], inv_twiddles: &[B])
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
@@ -304,7 +304,7 @@ where
         #[cfg(feature = "concurrent")]
         concurrent::interpolate_poly(evaluations, inv_twiddles);
     } else {
-        serial::interpolate_poly(&mut evaluations, inv_twiddles);
+        serial::interpolate_poly(evaluations, inv_twiddles);
     }
 }
 
@@ -396,7 +396,7 @@ pub fn interpolate_poly_with_offset<B, E>(
         #[cfg(feature = "concurrent")]
         concurrent::interpolate_poly_with_offset(evaluations, inv_twiddles, domain_offset);
     } else {
-        serial::interpolate_poly_with_offset(&mut evaluations, inv_twiddles, domain_offset);
+        serial::interpolate_poly_with_offset(evaluations, inv_twiddles, domain_offset);
     }
 }
 
@@ -439,8 +439,8 @@ where
         "multiplicative subgroup of size {} does not exist in the specified base field",
         values.len()
     );
-    serial::fft_in_place(&mut values, twiddles, 1, 1, 0);
-    serial::permute(&mut values);
+    serial::fft_in_place(values, twiddles, 1, 1, 0);
+    serial::permute(values);
 }
 
 // TWIDDLES
