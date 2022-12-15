@@ -1,6 +1,9 @@
 use crate::FieldElement;
 use core::slice::{ChunksMut, Iter};
 
+#[cfg(feature = "concurrent")]
+use utils::rayon::{self, ParallelIterator};
+
 // FFTINPUTS TRAIT
 // ================================================================================================
 
@@ -14,6 +17,13 @@ pub trait FftInputs<E: FieldElement> {
 
     /// An iterator over mutable chunks of this fftinputs.
     type ChunksMut<'c>: Iterator<Item = Self::ChunkItem<'c>>
+    where
+        Self: 'c,
+        E: 'c;
+
+    #[cfg(feature = "concurrent")]
+    /// A parallel iterator over mutable chunks of this fftinputs.
+    type ParChunksMut<'c>: ParallelIterator<Item = Self::ChunkItem<'c>>
     where
         Self: 'c,
         E: 'c;
@@ -48,7 +58,7 @@ pub trait FftInputs<E: FieldElement> {
     /// is present in fftindex. Specifically:
     ///
     /// elem_{i} = elem_{i} * init_offset * offset_factor^i
-    fn shift_by_series(&mut self, offset: E::BaseField, increment: E::BaseField);
+    fn shift_by_series(&mut self, offset: E::BaseField, increment: E::BaseField, num_skip: usize);
 
     /// Multiplies every element in this input by `offset`. Specifically:
     ///
@@ -70,6 +80,26 @@ pub trait FftInputs<E: FieldElement> {
 
     /// Returns an iterator over mutable chunks of this fftinputs.
     fn mut_chunks(&mut self, chunk_size: usize) -> Self::ChunksMut<'_>;
+
+    // CONCURRENT METHODS
+    // --------------------------------------------------------------------------------------------
+
+    // Need to implement these methods in the implementation of FftInputs for slices, mutable reference to slices
+    // and RowMatrix.
+
+    #[cfg(feature = "concurrent")]
+    /// Returns an iterator over chunks of size `chunk_size` of this fftinputs.
+    fn par_chunks(&self, chunk_size: usize) -> Self::ParChunks<'_>;
+
+    #[cfg(feature = "concurrent")]
+    /// Returns an iterator over mutable chunks of size `chunk_size` of this fftinputs.
+    fn par_mut_chunks(&mut self, chunk_size: usize) -> Self::ParChunks<'_>;
+
+    #[cfg(feature = "concurrent")]
+    /// Parallelizes the chone-and-shift-by operation.
+    fn par_clone_and_shift_by<S>(&mut self, source: &S, offset_factor: E::BaseField)
+    where
+        S: FftInputs<E> + ?Sized;
 }
 
 // FFTINPUTS IMPLEMENTATIONS
@@ -119,10 +149,10 @@ where
         self.swap(i, j)
     }
 
-    fn shift_by_series(&mut self, offset: E::BaseField, increment: E::BaseField) {
+    fn shift_by_series(&mut self, offset: E::BaseField, increment: E::BaseField, num_skip: usize) {
         let mut offset = E::from(offset);
         let increment = E::from(increment);
-        for d in self.iter_mut() {
+        for d in self.iter_mut().skip(num_skip) {
             *d *= offset;
             offset *= increment;
         }
@@ -190,8 +220,8 @@ where
         <[E] as FftInputs<E>>::swap_elements(self, i, j)
     }
 
-    fn shift_by_series(&mut self, offset: E::BaseField, increment: E::BaseField) {
-        <[E] as FftInputs<E>>::shift_by_series(self, offset, increment)
+    fn shift_by_series(&mut self, offset: E::BaseField, increment: E::BaseField, num_skip: usize) {
+        <[E] as FftInputs<E>>::shift_by_series(self, offset, increment, num_skip)
     }
 
     fn shift_by(&mut self, offset: E::BaseField) {
@@ -328,9 +358,9 @@ impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
         }
     }
 
-    fn shift_by_series(&mut self, offset: E::BaseField, increment: E::BaseField) {
+    fn shift_by_series(&mut self, offset: E::BaseField, increment: E::BaseField, num_skip: usize) {
         let increment = E::from(increment);
-        for d in 0..self.size() {
+        for d in num_skip..self.size() {
             let mut offset = E::from(offset);
             for i in 0..self.row_width {
                 self.data[d * self.row_width + i] *= offset

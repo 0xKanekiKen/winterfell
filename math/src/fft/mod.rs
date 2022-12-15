@@ -206,8 +206,13 @@ where
     if cfg!(feature = "concurrent") && p.len() >= MIN_CONCURRENT_SIZE {
         #[cfg(feature = "concurrent")]
         {
-            result =
-                concurrent::evaluate_poly_with_offset(p, twiddles, domain_offset, blowup_factor);
+            result = concurrent::evaluate_poly_with_offset(
+                p,
+                twiddles,
+                domain_offset,
+                blowup_factor,
+                result.as_mut_slice(),
+            );
         }
     } else {
         serial::evaluate_poly_with_offset(
