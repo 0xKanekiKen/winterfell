@@ -82,7 +82,7 @@ const MIN_CONCURRENT_SIZE: usize = 1024;
 ///
 /// assert_eq!(expected, p);
 /// ```
-pub fn evaluate_poly<B, E, I>(p: &mut [E], twiddles: &[B])
+pub fn evaluate_poly<B, E>(p: &mut [E], twiddles: &[B])
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
@@ -216,7 +216,7 @@ where
             twiddles,
             domain_offset,
             blowup_factor,
-            &mut result.as_mut_slice(),
+            result.as_mut_slice(),
         );
     }
 
@@ -364,7 +364,7 @@ where
 /// assert_eq!(p, ys);
 /// ```
 pub fn interpolate_poly_with_offset<B, E>(
-    mut evaluations: &mut [E],
+    evaluations: &mut [E],
     inv_twiddles: &[B],
     domain_offset: B,
 ) where
@@ -417,7 +417,7 @@ pub fn interpolate_poly_with_offset<B, E>(
 /// * Length of `values` is not a power of two.
 /// * Length of `twiddles` is not `values.len()` / 2.
 /// * Field specified by `B` does not contain a multiplicative subgroup of size `values.len()`.
-pub fn serial_fft<B, E>(mut values: &mut [E], twiddles: &[B])
+pub fn serial_fft<B, E>(values: &mut [E], twiddles: &[B])
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,

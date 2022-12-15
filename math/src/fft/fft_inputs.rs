@@ -1,25 +1,37 @@
 use crate::FieldElement;
-use core::{
-    borrow::{Borrow, BorrowMut},
-    cmp,
-    mem::transmute,
-    slice::ChunksMut,
-};
+use core::slice::{ChunksMut, Iter};
 
 // FFTINPUTS TRAIT
 // ================================================================================================
 
 /// Defines a set of inputs to be used in FFT computations.
-pub trait FftInputs<E: FieldElement>: Sized {
-    type BorrowSelf: BorrowMut<Self> + FftInputs<E>;
-    /// An iterator over mutable chunks of this fftinputs.
-    type ChunksMut<'a>: Iterator<Item = Self::BorrowSelf>
+pub trait FftInputs<E: FieldElement> {
+    /// A chunk of this fftinputs.
+    type ChunkItem<'b>: FftInputs<E>
     where
-        E: 'a,
-        Self: 'a;
+        Self: 'b,
+        E: 'b;
+
+    /// An iterator over mutable chunks of this fftinputs.
+    type ChunksMut<'c>: Iterator<Item = Self::ChunkItem<'c>>
+    where
+        Self: 'c,
+        E: 'c;
+
+    /// An iterator over elements of this fftinputs.
+    type ElementIter<'i>: Iterator<Item = &'i E>
+    where
+        Self: 'i,
+        E: 'i;
 
     /// Returns the number of elements in this input.
     fn size(&self) -> usize;
+
+    /// Returns an iterator over elements of this fftinputs.
+    fn iter(&self) -> Self::ElementIter<'_>;
+
+    /// Returns a reference to the element at index `idx`.
+    fn get(&self, idx: usize) -> &E;
 
     /// Combines the result of smaller discrete fourier transforms into a larger DFT.
     fn butterfly(&mut self, offset: usize, stride: usize);
@@ -48,31 +60,40 @@ pub trait FftInputs<E: FieldElement>: Sized {
     /// the index at which the element is present in fftindex. Specifically:
     ///
     /// elem_{i} = source_{i} * init_offset * offset_factor^i
-    fn clone_and_shift_by(
+    fn clone_and_shift_by<S>(
         &mut self,
-        source: &Self,
+        source: &S,
         init_offset: E::BaseField,
         offset_factor: E::BaseField,
-    );
+    ) where
+        S: FftInputs<E> + ?Sized;
 
     /// Returns an iterator over mutable chunks of this fftinputs.
-    fn mut_chunks<'b>(&'b mut self, chunk_size: usize) -> Self::ChunksMut<'b>;
+    fn mut_chunks(&mut self, chunk_size: usize) -> Self::ChunksMut<'_>;
 }
 
 // FFTINPUTS IMPLEMENTATIONS
 // ================================================================================================
 
 /// An implementation of `FftInputs` for slices of field elements.
-impl<E: FieldElement, S: AsMut<[E]>> FftInputs<E> for S
+impl<E> FftInputs<E> for [E]
 where
-    S: Sized,
+    E: FieldElement,
 {
-    type ChunksMut<'a> = std::slice::ChunksMut<'a, S> where E: 'a, S: 'a;
-
-    type BorrowSelf = Self;
+    type ChunkItem<'b> = &'b mut [E] where E: 'b;
+    type ChunksMut<'a> = ChunksMut<'a, E> where Self: 'a;
+    type ElementIter<'i> = Iter<'i, E> where Self: 'i;
 
     fn size(&self) -> usize {
-        (**self).len()
+        self.len()
+    }
+
+    fn iter(&self) -> Self::ElementIter<'_> {
+        self.iter()
+    }
+
+    fn get(&self, idx: usize) -> &E {
+        &self[idx]
     }
 
     #[inline(always)]
@@ -114,12 +135,14 @@ where
         }
     }
 
-    fn clone_and_shift_by(
+    fn clone_and_shift_by<S>(
         &mut self,
-        source: &Self,
+        source: &S,
         init_offset: E::BaseField,
         offset_factor: E::BaseField,
-    ) {
+    ) where
+        S: FftInputs<E> + ?Sized,
+    {
         let mut init_offset = init_offset;
         for (d, c) in self.iter_mut().zip(source.iter()) {
             *d = (*c).mul_base(init_offset);
@@ -127,16 +150,67 @@ where
         }
     }
 
-    fn mut_chunks<'b>(&'b mut self, chunk_size: usize) -> Self::ChunksMut<'b> {
-        // let slice = self.as_mut();
-        // let slice: = unsafe { transmute::<_, _>(slice) };
-        self.as_mut().chunks_mut(chunk_size)
-        // Safety: this conversion is safe because `&'a mut [T]: 'a`; the only way to express that
-        // is to leak the lifetime of `FftInputs`, and that is undesirable since it will create
-        // unnecessary complexity for the users of the trait.
-        //
-        // We are using transmute to guarantee this conversion is noop.
-        // unsafe { transmute::<ChunksMut<'_, E>, ChunksMut<'a, E>>(chunks) }
+    fn mut_chunks(&mut self, chunk_size: usize) -> Self::ChunksMut<'_> {
+        self.chunks_mut(chunk_size)
+    }
+}
+
+/// An implementation of `FftInputs` for mutable references to slices of field elements.
+impl<'a, E> FftInputs<E> for &'a mut [E]
+where
+    E: FieldElement,
+{
+    type ChunkItem<'b> = &'b mut [E] where Self: 'b;
+    type ChunksMut<'c> = ChunksMut<'c, E> where Self: 'c;
+    type ElementIter<'i> = Iter<'i, E> where Self: 'i;
+
+    fn size(&self) -> usize {
+        <[E] as FftInputs<E>>::size(self)
+    }
+
+    fn iter(&self) -> Self::ElementIter<'_> {
+        <[E] as FftInputs<E>>::iter(self)
+    }
+
+    fn get(&self, idx: usize) -> &E {
+        <[E] as FftInputs<E>>::get(self, idx)
+    }
+
+    #[inline(always)]
+    fn butterfly(&mut self, offset: usize, stride: usize) {
+        <[E] as FftInputs<E>>::butterfly(self, offset, stride)
+    }
+
+    #[inline(always)]
+    fn butterfly_twiddle(&mut self, twiddle: E::BaseField, offset: usize, stride: usize) {
+        <[E] as FftInputs<E>>::butterfly_twiddle(self, twiddle, offset, stride)
+    }
+
+    fn swap_elements(&mut self, i: usize, j: usize) {
+        <[E] as FftInputs<E>>::swap_elements(self, i, j)
+    }
+
+    fn shift_by_series(&mut self, offset: E::BaseField, increment: E::BaseField) {
+        <[E] as FftInputs<E>>::shift_by_series(self, offset, increment)
+    }
+
+    fn shift_by(&mut self, offset: E::BaseField) {
+        <[E] as FftInputs<E>>::shift_by(self, offset)
+    }
+
+    fn clone_and_shift_by<S>(
+        &mut self,
+        source: &S,
+        init_offset: E::BaseField,
+        offset_factor: E::BaseField,
+    ) where
+        S: FftInputs<E> + ?Sized,
+    {
+        <[E] as FftInputs<E>>::clone_and_shift_by(self, source, init_offset, offset_factor)
+    }
+
+    fn mut_chunks(&mut self, chunk_size: usize) -> Self::ChunksMut<'_> {
+        <[E] as FftInputs<E>>::mut_chunks(self, chunk_size)
     }
 }
 
@@ -147,34 +221,18 @@ pub struct RowMajor<'a, E: FieldElement> {
     row_width: usize,
 }
 
-// impl<'a, E> BorrowMut<&'a mut RowMajor<'a, E>> for RowMajor<'a, E>
-// where
-//     E: FieldElement,
-// {
-//     fn borrow_mut(&mut self) -> &mut &'a mut RowMajor<'a, E> {
-//         unsafe { transmute(&mut self) }
-//     }
-// }
-
-// impl<'a, E> Borrow<&'a mut RowMajor<'a, E>> for RowMajor<'a, E>
-// where
-//     E: FieldElement,
-// {
-//     fn borrow(&self) -> &&'a mut RowMajor<'a, E> {
-//         unreachable!()
-//     }
-// }
-
+/// An implementation of RowMajor for mutable references to slices of field elements.
 impl<'a, E> RowMajor<'a, E>
 where
     E: FieldElement,
 {
     /// Creates a new instance of `RowMajor` from the given data and row width.
     pub fn new(data: &'a mut [E], row_width: usize) -> Self {
+        debug_assert_ne!(0, row_width);
         Self { data, row_width }
     }
 
-    /// Length of the internal slice
+    /// Returns the number of elements in the underlying slice.
     fn len(&self) -> usize {
         self.data.len()
     }
@@ -197,23 +255,24 @@ where
         let right = Self::new(right, self.row_width);
         (left, right)
     }
-
-    /// Returns an iterator over mutable chunks of this struct. Each chunk will contain
-    /// `chunk_size` rows.
-    fn chunks_mut(&mut self, chunk_size: usize) -> MatrixChunksMut<'a, E> {
-        MatrixChunksMut {
-            data: Self::new(self.as_mut_slice(), self.row_width),
-            chunk_size,
-        }
-    }
 }
 
-impl<'a, E: FieldElement> FftInputs<E> for &'a mut RowMajor<'a, E> {
-    type ChunksMut = MatrixChunksMut<'a, E>;
+/// Implementation of `FftInputs` for `RowMajor`.
+impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
+    type ChunkItem<'b> = RowMajor<'b, E> where Self: 'b;
+    type ChunksMut<'c> = MatrixChunksMut<'c, E> where Self: 'c;
+    type ElementIter<'i> = Iter<'i, E> where Self: 'i;
 
-    type BorrowSelf = RowMajor<'a, E>;
     fn size(&self) -> usize {
         self.data.len() / self.row_width
+    }
+
+    fn iter(&self) -> Self::ElementIter<'_> {
+        self.data.iter()
+    }
+
+    fn get(&self, idx: usize) -> &E {
+        &self.data[idx]
     }
 
     #[inline(always)]
@@ -271,37 +330,26 @@ impl<'a, E: FieldElement> FftInputs<E> for &'a mut RowMajor<'a, E> {
         }
     }
 
-    fn clone_and_shift_by(
+    fn clone_and_shift_by<S>(
         &mut self,
-        source: &Self,
+        source: &S,
         init_offset: E::BaseField,
         offset_factor: E::BaseField,
-    ) {
+    ) where
+        S: FftInputs<E> + ?Sized,
+    {
         let increment = E::from(offset_factor);
         for d in 0..self.size() {
             let mut offset = E::from(init_offset);
             for i in 0..self.row_width {
                 self.data[d * self.row_width + i] =
-                    source.data[d * self.row_width + i].mul_base(init_offset)
+                    source.get(d * self.row_width + i).mul_base(init_offset)
             }
             offset *= increment;
         }
     }
 
     fn mut_chunks(&mut self, chunk_size: usize) -> Self::ChunksMut<'_> {
-        // let chunks = <MatrixChunks<E>>::chunks_mut(self, chunk_size);
-        // Safety: this conversion is safe because `&'a mut [T]: 'a`; the only way to express that
-        // is to leak the lifetime of `FftInputs`, and that is undesirable since it will create
-        // unnecessary complexity for the users of the trait.
-        //
-        // We are transmuting the lifetime of the chunks to the lifetime of the
-        // FftInputs. This is safe because the FftInputs is guaranteed to outlive the
-        // chunks. This is because the FftInputs is a reference to the MatrixChunks, and
-        // the MatrixChunks is a reference to the data. The data is guaranteed to outlive
-        // the FftInputs because the FftInputs is a reference to the data.
-        // unsafe { transmute::<MatrixChunksMut<'_, E>, MatrixChunksMut<'a, E>>(chunks) }
-
-        // let data = std::mem::take(&mut self.data);
         MatrixChunksMut {
             data: RowMajor {
                 data: self.as_mut_slice(),
@@ -309,91 +357,6 @@ impl<'a, E: FieldElement> FftInputs<E> for &'a mut RowMajor<'a, E> {
             },
             chunk_size,
         }
-    }
-}
-
-impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
-    type ChunksMut = MatrixChunksMut<'a, E>;
-
-    type BorrowSelf = RowMajor<'a, E>;
-    fn size(&self) -> usize {
-        self.data.len() / self.row_width
-    }
-
-    #[inline(always)]
-    fn butterfly(&mut self, offset: usize, stride: usize) {
-        let i = offset;
-        let j = offset + stride;
-
-        for col_idx in 0..self.row_width {
-            let temp = self.data[self.row_width * i + col_idx];
-            self.data[self.row_width * i + col_idx] =
-                temp + self.data[self.row_width * j + col_idx];
-            self.data[self.row_width * j + col_idx] =
-                temp - self.data[self.row_width * j + col_idx];
-        }
-    }
-
-    #[inline(always)]
-    fn butterfly_twiddle(&mut self, twiddle: E::BaseField, offset: usize, stride: usize) {
-        let i = offset;
-        let j = offset + stride;
-
-        for col_idx in 0..self.row_width {
-            let temp = self.data[self.row_width * i + col_idx];
-            self.data[self.row_width * j + col_idx] =
-                self.data[self.row_width * j + col_idx].mul_base(twiddle);
-            self.data[self.row_width * i + col_idx] =
-                temp + self.data[self.row_width * j + col_idx];
-            self.data[self.row_width * j + col_idx] =
-                temp - self.data[self.row_width * j + col_idx];
-        }
-    }
-
-    fn swap_elements(&mut self, i: usize, j: usize) {
-        for col_idx in 0..self.row_width {
-            self.data
-                .swap(self.row_width * i + col_idx, self.row_width * j + col_idx);
-        }
-    }
-
-    fn shift_by_series(&mut self, offset: E::BaseField, increment: E::BaseField) {
-        let increment = E::from(increment);
-        for d in 0..self.size() {
-            let mut offset = E::from(offset);
-            for i in 0..self.row_width {
-                self.data[d * self.row_width + i] *= offset
-            }
-            offset *= increment;
-        }
-    }
-
-    fn shift_by(&mut self, offset: E::BaseField) {
-        let offset = E::from(offset);
-        for d in self.data.iter_mut() {
-            *d *= offset;
-        }
-    }
-
-    fn clone_and_shift_by(
-        &mut self,
-        source: &Self,
-        init_offset: E::BaseField,
-        offset_factor: E::BaseField,
-    ) {
-        let increment = E::from(offset_factor);
-        for d in 0..self.size() {
-            let mut offset = E::from(init_offset);
-            for i in 0..self.row_width {
-                self.data[d * self.row_width + i] =
-                    source.data[d * self.row_width + i].mul_base(init_offset)
-            }
-            offset *= increment;
-        }
-    }
-
-    fn mut_chunks(&mut self, chunk_size: usize) -> Self::ChunksMut<'a> {
-        FftInputs::mut_chunks(self, chunk_size)
     }
 }
 
@@ -424,7 +387,7 @@ impl<'a, E: FieldElement> Iterator for MatrixChunksMut<'a, E> {
             return None;
         }
         let at = self.chunk_size.min(self.len());
-        let (mut head, tail) = self.data.split_at_mut(at);
+        let (head, tail) = self.data.split_at_mut(at);
         self.data = tail;
         Some(head)
     }

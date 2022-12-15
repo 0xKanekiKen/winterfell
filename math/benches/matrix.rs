@@ -3,14 +3,13 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
-use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use rand_utils::rand_vector;
 use std::time::Duration;
-use utils::iter_mut;
+
 use winter_math::{
     fft::{self},
-    fields::{f62, f64, f64::BaseElement, CubeExtension, QuadExtension},
-    FieldElement, StarkField,
+    fields::f64::BaseElement,
 };
 
 const SIZES: [usize; 3] = [262_144, 524_288, 1_048_576];
@@ -22,7 +21,7 @@ fn interpolate_columns(c: &mut Criterion) {
 
     for &size in SIZES.iter() {
         let num_cols = 128;
-        let stride = 8;
+        let _stride = 8;
         let mut columns: Vec<Vec<BaseElement>> = (0..num_cols).map(|_| rand_vector(size)).collect();
         let inv_twiddles = fft::get_inv_twiddles::<BaseElement>(size);
         group.bench_function(BenchmarkId::new("columns", size), |bench| {

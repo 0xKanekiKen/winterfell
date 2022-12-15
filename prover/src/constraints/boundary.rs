@@ -3,8 +3,6 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
-use core::borrow::BorrowMut;
-
 use super::StarkDomain;
 use air::{Air, AuxTraceRandElements, ConstraintDivisor};
 use math::{fft, ExtensionOf, FieldElement};
@@ -52,7 +50,7 @@ impl<E: FieldElement> BoundaryConstraints<E> {
         let mut result = source
             .main_constraints()
             .iter_mut()
-            .map(|mut group| {
+            .map(|group| {
                 BoundaryConstraintGroup::from_main_constraints(group, air, &mut twiddle_map)
             })
             .collect::<Vec<BoundaryConstraintGroup<E>>>();
