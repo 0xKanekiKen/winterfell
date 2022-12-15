@@ -16,13 +16,13 @@ use crate::{
     utils::{get_power_series, log2},
 };
 
-mod fft_inputs;
-mod serial;
+pub mod fft_inputs;
+pub mod serial;
 
 #[cfg(feature = "concurrent")]
 mod concurrent;
 
-use utils::collections::Vec;
+use utils::{collections::Vec, uninit_vector};
 
 #[cfg(test)]
 mod tests;
@@ -168,7 +168,7 @@ where
 /// assert_eq!(expected, actual);
 /// ```
 pub fn evaluate_poly_with_offset<B, E>(
-    p: &[E],
+    p: &mut [E],
     twiddles: &[B],
     domain_offset: B,
     blowup_factor: usize,
@@ -199,9 +199,7 @@ where
     );
     assert_ne!(domain_offset, B::ZERO, "domain offset cannot be zero");
 
-    // assign a dummy value here to make the compiler happy
-    #[allow(unused_assignments)]
-    let mut result = Vec::new();
+    let mut result = unsafe { uninit_vector(p.len() * blowup_factor) };
 
     // when `concurrent` feature is enabled, run the concurrent version of the function; unless
     // the polynomial is small, then don't bother with the concurrent version
@@ -212,7 +210,13 @@ where
                 concurrent::evaluate_poly_with_offset(p, twiddles, domain_offset, blowup_factor);
         }
     } else {
-        result = serial::evaluate_poly_with_offset(p, twiddles, domain_offset, blowup_factor);
+        serial::evaluate_poly_with_offset(
+            p,
+            twiddles,
+            domain_offset,
+            blowup_factor,
+            result.as_mut_slice(),
+        );
     }
 
     result
@@ -590,7 +594,13 @@ fn permute<E: FieldElement>(v: &mut [E]) {
         #[cfg(feature = "concurrent")]
         concurrent::permute(v);
     } else {
-        serial::permute(v);
+        let n = v.len();
+        for i in 0..n {
+            let j = permute_index(n, i);
+            if j > i {
+                v.swap(i, j);
+            }
+        }
     }
 }
 
