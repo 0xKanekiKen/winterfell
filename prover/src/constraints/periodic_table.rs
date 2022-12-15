@@ -25,7 +25,7 @@ impl<B: StarkField> PeriodicValueTable<B> {
     pub fn new<A: Air<BaseField = B>>(air: &A) -> PeriodicValueTable<B> {
         // get a list of polynomials describing periodic columns from AIR. if there are no
         // periodic columns return an empty table
-        let polys = air.get_periodic_column_polys();
+        let mut polys = air.get_periodic_column_polys();
         if polys.is_empty() {
             return PeriodicValueTable {
                 values: Vec::new(),
@@ -43,7 +43,7 @@ impl<B: StarkField> PeriodicValueTable<B> {
         let mut twiddle_map = BTreeMap::new();
 
         let evaluations = polys
-            .iter()
+            .iter_mut()
             .map(|poly| {
                 let poly_size = poly.len();
                 let num_cycles = (air.trace_length() / poly_size) as u64;

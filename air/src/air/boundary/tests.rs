@@ -23,7 +23,7 @@ fn boundary_constraint_from_single_assertion() {
     // constraint should be built correctly for column 0, step 0
     let value = rand_value::<BaseElement>();
     let assertion = Assertion::single(0, 0, value);
-    let constraint = BoundaryConstraint::<BaseElement, BaseElement>::new(
+    let mut constraint = BoundaryConstraint::<BaseElement, BaseElement>::new(
         assertion,
         inv_g,
         &mut twiddle_map,
@@ -47,7 +47,7 @@ fn boundary_constraint_from_single_assertion() {
     // constraint is build correctly for column 1 step 8
     let value = rand_value::<BaseElement>();
     let assertion = Assertion::single(1, 8, value);
-    let constraint = BoundaryConstraint::<BaseElement, BaseElement>::new(
+    let mut constraint = BoundaryConstraint::<BaseElement, BaseElement>::new(
         assertion,
         inv_g,
         &mut twiddle_map,
@@ -80,7 +80,7 @@ fn boundary_constraint_from_periodic_assertion() {
     // constraint should be built correctly for column 0, step 0, stride 4
     let value = rand_value::<BaseElement>();
     let assertion = Assertion::periodic(0, 0, 4, value);
-    let constraint = BoundaryConstraint::<BaseElement, BaseElement>::new(
+    let mut constraint = BoundaryConstraint::<BaseElement, BaseElement>::new(
         assertion,
         inv_g,
         &mut twiddle_map,
@@ -104,7 +104,7 @@ fn boundary_constraint_from_periodic_assertion() {
     // constraint should be built correctly for column 2, first step 3, stride 8
     let value = rand_value::<BaseElement>();
     let assertion = Assertion::periodic(2, 3, 8, value);
-    let constraint = BoundaryConstraint::<BaseElement, BaseElement>::new(
+    let mut constraint = BoundaryConstraint::<BaseElement, BaseElement>::new(
         assertion,
         inv_g,
         &mut twiddle_map,
@@ -138,7 +138,7 @@ fn boundary_constraint_from_sequence_assertion() {
     let values = rand_vector::<BaseElement>(4);
     let constraint_poly = build_sequence_poly(&values, 16);
     let assertion = Assertion::sequence(0, 0, 4, values);
-    let constraint = BoundaryConstraint::<BaseElement, BaseElement>::new(
+    let mut constraint = BoundaryConstraint::<BaseElement, BaseElement>::new(
         assertion,
         inv_g,
         &mut twiddle_map,
@@ -166,7 +166,7 @@ fn boundary_constraint_from_sequence_assertion() {
     let values = rand_vector::<BaseElement>(2);
     let constraint_poly = build_sequence_poly(&values, 16);
     let assertion = Assertion::sequence(0, 3, 8, values);
-    let constraint = BoundaryConstraint::<BaseElement, BaseElement>::new(
+    let mut constraint = BoundaryConstraint::<BaseElement, BaseElement>::new(
         assertion,
         inv_g,
         &mut twiddle_map,

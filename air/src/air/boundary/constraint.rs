@@ -94,8 +94,8 @@ where
     }
 
     /// Returns a value polynomial for this constraint.
-    pub fn poly(&self) -> &[F] {
-        &self.poly
+    pub fn poly(&mut self) -> &mut [F] {
+        &mut self.poly
     }
 
     /// Returns offset by which we need to shift the domain before evaluating this constraint.

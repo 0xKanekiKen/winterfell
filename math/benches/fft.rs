@@ -39,11 +39,16 @@ where
     }
 
     for &size in SIZES.iter() {
-        let p: Vec<E> = rand_vector(size / blowup_factor);
+        let mut p: Vec<E> = rand_vector(size / blowup_factor);
         let twiddles: Vec<B> = fft::get_twiddles(size / blowup_factor);
         group.bench_function(BenchmarkId::new("with_offset", size), |bench| {
             bench.iter_with_large_drop(|| {
-                fft::evaluate_poly_with_offset(&p, &twiddles, B::GENERATOR, blowup_factor)
+                fft::evaluate_poly_with_offset(
+                    p.as_mut_slice(),
+                    &twiddles,
+                    B::GENERATOR,
+                    blowup_factor,
+                )
             });
         });
     }
