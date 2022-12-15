@@ -47,7 +47,7 @@ fn extend_trace_table() {
     let domain = StarkDomain::new(&air);
 
     // build extended trace commitment
-    let trace_polys = trace.main_segment().interpolate_columns();
+    let mut trace_polys = trace.main_segment().interpolate_columns();
     let trace_lde = trace_polys.evaluate_columns_over(&domain);
     let trace_tree = trace_lde.commit_to_rows::<Blake3>();
     let trace_comm = TraceCommitment::<BaseElement, Blake3>::new(
@@ -100,7 +100,7 @@ fn commit_trace_table() {
     let domain = StarkDomain::new(&air);
 
     // build extended trace commitment
-    let trace_polys = trace.main_segment().interpolate_columns();
+    let mut trace_polys = trace.main_segment().interpolate_columns();
     let trace_lde = trace_polys.evaluate_columns_over(&domain);
     let trace_tree = trace_lde.commit_to_rows::<Blake3>();
     let trace_comm = TraceCommitment::<BaseElement, Blake3>::new(

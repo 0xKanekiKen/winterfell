@@ -71,7 +71,7 @@ impl<E: FieldElement> CompositionPoly<E> {
     // --------------------------------------------------------------------------------------------
     /// Evaluates the columns of the composition polynomial over the specified LDE domain and
     /// returns the result.
-    pub fn evaluate<B>(&self, domain: &StarkDomain<B>) -> Matrix<E>
+    pub fn evaluate<B>(&mut self, domain: &StarkDomain<B>) -> Matrix<E>
     where
         B: StarkField,
         E: FieldElement<BaseField = B>,
