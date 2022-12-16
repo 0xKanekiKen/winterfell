@@ -44,12 +44,10 @@ pub fn evaluate_poly_with_offset<B, E, I>(
         .mut_chunks(p.size())
         .enumerate()
         .for_each(|(i, mut chunk)| {
-            // convert chunk into Fftinputs. This is safe because we know that the chunk is
-            // the same size as the input.
             let idx = super::permute_index(blowup_factor, i) as u64;
             let offset = g.exp(idx.into()) * domain_offset;
             let factor = B::ONE;
-            chunk.clone_and_shift_by(p, factor, offset);
+            chunk.clone_and_shift_by(&p.as_chunk(), factor, offset);
             fft_in_place(&mut chunk, twiddles, 1, 1, 0);
         });
 

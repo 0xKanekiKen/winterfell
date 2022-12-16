@@ -1,5 +1,5 @@
 use crate::FieldElement;
-use core::slice::{ChunksMut, Iter};
+use core::slice::ChunksMut;
 
 // FFTINPUTS TRAIT
 // ================================================================================================
@@ -18,20 +18,8 @@ pub trait FftInputs<E: FieldElement> {
         Self: 'c,
         E: 'c;
 
-    /// An iterator over elements of this fftinputs.
-    type ElementIter<'i>: Iterator<Item = &'i E>
-    where
-        Self: 'i,
-        E: 'i;
-
     /// Returns the number of elements in this input.
     fn size(&self) -> usize;
-
-    /// Returns an iterator over elements of this fftinputs.
-    fn iter(&self) -> Self::ElementIter<'_>;
-
-    /// Returns a reference to the element at index `idx`.
-    fn get(&self, idx: usize) -> &E;
 
     /// Combines the result of smaller discrete fourier transforms into a larger DFT.
     fn butterfly(&mut self, offset: usize, stride: usize);
@@ -60,16 +48,17 @@ pub trait FftInputs<E: FieldElement> {
     /// the index at which the element is present in fftindex. Specifically:
     ///
     /// elem_{i} = source_{i} * init_offset * offset_factor^i
-    fn clone_and_shift_by<S>(
+    fn clone_and_shift_by(
         &mut self,
-        source: &S,
+        source: &Self,
         init_offset: E::BaseField,
         offset_factor: E::BaseField,
-    ) where
-        S: FftInputs<E> + ?Sized;
+    );
 
     /// Returns an iterator over mutable chunks of this fftinputs.
     fn mut_chunks(&mut self, chunk_size: usize) -> Self::ChunksMut<'_>;
+
+    fn as_chunk<'a>(&'a self) -> Self::ChunkItem<'a>;
 }
 
 // FFTINPUTS IMPLEMENTATIONS
@@ -82,18 +71,9 @@ where
 {
     type ChunkItem<'b> = &'b mut [E] where E: 'b;
     type ChunksMut<'a> = ChunksMut<'a, E> where Self: 'a;
-    type ElementIter<'i> = Iter<'i, E> where Self: 'i;
 
     fn size(&self) -> usize {
         self.len()
-    }
-
-    fn iter(&self) -> Self::ElementIter<'_> {
-        self.iter()
-    }
-
-    fn get(&self, idx: usize) -> &E {
-        &self[idx]
     }
 
     #[inline(always)]
@@ -135,14 +115,12 @@ where
         }
     }
 
-    fn clone_and_shift_by<S>(
+    fn clone_and_shift_by(
         &mut self,
-        source: &S,
+        source: &Self,
         init_offset: E::BaseField,
         offset_factor: E::BaseField,
-    ) where
-        S: FftInputs<E> + ?Sized,
-    {
+    ) {
         let mut init_offset = init_offset;
         for (d, c) in self.iter_mut().zip(source.iter()) {
             *d = (*c).mul_base(init_offset);
@@ -153,6 +131,10 @@ where
     fn mut_chunks(&mut self, chunk_size: usize) -> Self::ChunksMut<'_> {
         self.chunks_mut(chunk_size)
     }
+
+    fn as_chunk<'a>(&'a self) -> Self::ChunkItem<'a> {
+        as_mut_ref(self)
+    }
 }
 
 /// An implementation of `FftInputs` for mutable references to slices of field elements.
@@ -162,18 +144,9 @@ where
 {
     type ChunkItem<'b> = &'b mut [E] where Self: 'b;
     type ChunksMut<'c> = ChunksMut<'c, E> where Self: 'c;
-    type ElementIter<'i> = Iter<'i, E> where Self: 'i;
 
     fn size(&self) -> usize {
         <[E] as FftInputs<E>>::size(self)
-    }
-
-    fn iter(&self) -> Self::ElementIter<'_> {
-        <[E] as FftInputs<E>>::iter(self)
-    }
-
-    fn get(&self, idx: usize) -> &E {
-        <[E] as FftInputs<E>>::get(self, idx)
     }
 
     #[inline(always)]
@@ -198,19 +171,21 @@ where
         <[E] as FftInputs<E>>::shift_by(self, offset)
     }
 
-    fn clone_and_shift_by<S>(
+    fn clone_and_shift_by(
         &mut self,
-        source: &S,
+        source: &Self,
         init_offset: E::BaseField,
         offset_factor: E::BaseField,
-    ) where
-        S: FftInputs<E> + ?Sized,
-    {
+    ) {
         <[E] as FftInputs<E>>::clone_and_shift_by(self, source, init_offset, offset_factor)
     }
 
     fn mut_chunks(&mut self, chunk_size: usize) -> Self::ChunksMut<'_> {
         <[E] as FftInputs<E>>::mut_chunks(self, chunk_size)
+    }
+
+    fn as_chunk<'b>(&'b self) -> Self::ChunkItem<'b> {
+        <[E] as FftInputs<E>>::as_chunk(self)
     }
 }
 
@@ -277,18 +252,9 @@ where
 impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
     type ChunkItem<'b> = RowMajor<'b, E> where Self: 'b;
     type ChunksMut<'c> = MatrixChunksMut<'c, E> where Self: 'c;
-    type ElementIter<'i> = Iter<'i, E> where Self: 'i;
 
     fn size(&self) -> usize {
         self.data.len() / self.row_width
-    }
-
-    fn iter(&self) -> Self::ElementIter<'_> {
-        self.data.iter()
-    }
-
-    fn get(&self, idx: usize) -> &E {
-        &self.data[idx]
     }
 
     #[inline(always)]
@@ -346,20 +312,18 @@ impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
         }
     }
 
-    fn clone_and_shift_by<S>(
+    fn clone_and_shift_by(
         &mut self,
-        source: &S,
+        source: &Self,
         init_offset: E::BaseField,
         offset_factor: E::BaseField,
-    ) where
-        S: FftInputs<E> + ?Sized,
-    {
+    ) {
         let increment = E::from(offset_factor);
         for d in 0..self.size() {
             let mut offset = E::from(init_offset);
             for i in 0..self.row_width {
                 self.data[d * self.row_width + i] =
-                    source.get(d * self.row_width + i).mul_base(init_offset)
+                    source.data[d * self.row_width + i].mul_base(init_offset)
             }
             offset *= increment;
         }
@@ -372,6 +336,13 @@ impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
                 row_width: self.row_width,
             },
             chunk_size,
+        }
+    }
+
+    fn as_chunk<'b>(&'b self) -> Self::ChunkItem<'b> {
+        RowMajor {
+            data: as_mut_ref(self).data,
+            row_width: self.row_width,
         }
     }
 }
@@ -407,4 +378,19 @@ impl<'a, E: FieldElement> Iterator for MatrixChunksMut<'a, E> {
         self.data = tail;
         Some(head)
     }
+}
+
+// HELPER FUNCTIONS
+// ================================================================================================
+
+/// Convert an immutable reference to a mutable reference. This is safe because the reference is
+/// never dereferenced.
+fn as_mut_ref<T: ?Sized>(x: &T) -> &mut T {
+    unsafe { &mut *(x as *const T as *mut T) }
+}
+
+/// Convert a mutable reference to an immutable reference. This is safe because the reference is
+/// never dereferenced.
+fn as_ref<T: ?Sized>(x: &mut T) -> &T {
+    unsafe { &*(x as *mut T as *const T) }
 }
