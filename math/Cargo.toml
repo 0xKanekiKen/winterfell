@@ -20,6 +20,10 @@ name = "fft"
 harness = false
 
 [[bench]]
+name = "matrix"
+harness = false
+
+[[bench]]
 name = "field"
 harness = false
 
