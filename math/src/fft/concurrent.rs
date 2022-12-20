@@ -7,7 +7,7 @@ use crate::{
     field::{FieldElement, StarkField},
     utils::log2,
 };
-use utils::rayon;
+use rayon::prelude::*;
 
 use super::fft_inputs::FftInputs;
 
@@ -20,7 +20,7 @@ pub fn evaluate_poly<B, E, I>(p: &mut I, twiddles: &[B])
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
-    I: FftInputs<E>,
+    I: FftInputs<E> + Send,
 {
     split_radix_fft(p, twiddles);
     permute(p);
@@ -38,12 +38,12 @@ pub fn evaluate_poly_with_offset<B, E, I>(
 ) where
     B: StarkField,
     E: FieldElement<BaseField = B>,
-    I: FftInputs<E>,
+    I: FftInputs<E> + Send + Sync,
 {
     let g = B::get_root_of_unity(log2(p.size() * blowup_factor));
 
     result
-        .par_chunks_mut(p.size())
+        .par_mut_chunks(p.size())
         .enumerate()
         .for_each(|(i, mut chunk)| {
             let idx = super::permute_index(blowup_factor, i) as u64;
@@ -66,7 +66,7 @@ pub fn interpolate_poly<B, E, I>(v: &mut I, inv_twiddles: &[B])
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
-    I: FftInputs<E>,
+    I: FftInputs<E> + Send,
 {
     split_radix_fft(v, inv_twiddles);
     let inv_length = B::inv((v.size() as u64).into());
@@ -75,9 +75,9 @@ where
 
     // Note: One alternate solution would be to implement a parallel version of this loop in
     // FftInputs.
-    v.par_chunks_mut(batch_size)
+    v.par_mut_chunks(batch_size)
         .enumerate()
-        .for_each(|(i, batch)| {
+        .for_each(|(_i, mut batch)| {
             batch.shift_by(inv_length);
         });
     permute(v);
@@ -89,20 +89,20 @@ pub fn interpolate_poly_with_offset<B, E, I>(values: &mut I, inv_twiddles: &[B],
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
-    I: FftInputs<E>,
+    I: FftInputs<E> + Send,
 {
     split_radix_fft(values, inv_twiddles);
     permute(values);
 
-    let domain_offset = B::inv(domain_offset.into());
+    let domain_offset = B::inv(domain_offset);
     let inv_len = B::inv((values.size() as u64).into());
     let batch_size = values.size() / rayon::current_num_threads().next_power_of_two();
 
     values
-        .par_chunks_mut(batch_size)
+        .par_mut_chunks(batch_size)
         .enumerate()
-        .for_each(|(i, batch)| {
-            let mut offset = domain_offset.exp(((i * batch_size) as u64).into()) * inv_len;
+        .for_each(|(i, mut batch)| {
+            let offset = domain_offset.exp(((i * batch_size) as u64).into()) * inv_len;
             batch.shift_by_series(offset, domain_offset, 0);
         });
 }
@@ -113,7 +113,7 @@ where
 pub fn permute<E, I>(v: &mut I)
 where
     E: FieldElement,
-    I: FftInputs<E>,
+    I: FftInputs<E> + Send,
 {
     let n = v.size();
     let num_batches = rayon::current_num_threads().next_power_of_two();
@@ -164,24 +164,24 @@ where
 
     // apply inner FFTs
     values
-        .par_chunks_mut(outer_len)
-        .for_each(|row| super::serial::fft_in_place(&mut row, &twiddles, stretch, stretch, 0));
+        .par_mut_chunks(outer_len)
+        .for_each(|mut row| super::serial::fft_in_place(&mut row, twiddles, stretch, stretch, 0));
 
     // transpose inner x inner x stretch square matrix
     transpose_square_stretch(values, inner_len, stretch);
 
     // apply outer FFTs
     values
-        .par_chunks_mut(outer_len)
+        .par_mut_chunks(outer_len)
         .enumerate()
         .for_each(|(i, mut row)| {
             if i > 0 {
                 let i = super::permute_index(inner_len, i);
                 let inner_twiddle = g.exp((i as u32).into());
-                let mut outer_twiddle = inner_twiddle;
+                let outer_twiddle = inner_twiddle;
                 row.shift_by_series(outer_twiddle, inner_twiddle, 1);
             }
-            super::serial::fft_in_place(&mut row, &twiddles, 1, 1, 0)
+            super::serial::fft_in_place(&mut row, twiddles, 1, 1, 0)
         });
 }
 
@@ -242,23 +242,4 @@ where
             matrix.swap_elements(i + 1, j + 1);
         }
     }
-}
-
-// HELPER FUNCTIONS
-// ================================================================================================
-
-/// NOTE: Need to move this function to FftInputs trait.
-fn clone_and_shift<E: FieldElement>(source: &[E], destination: &mut [E], offset: E::BaseField) {
-    let batch_size = source.len() / rayon::current_num_threads().next_power_of_two();
-    source
-        .par_chunks(batch_size)
-        .zip(destination.par_chunks_mut(batch_size))
-        .enumerate()
-        .for_each(|(i, (source, destination))| {
-            let mut factor = offset.exp(((i * batch_size) as u64).into());
-            for (s, d) in source.iter().zip(destination.iter_mut()) {
-                *d = (*s).mul_base(factor);
-                factor = factor * offset;
-            }
-        });
 }

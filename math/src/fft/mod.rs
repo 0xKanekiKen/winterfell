@@ -19,7 +19,7 @@ use crate::{
 pub mod fft_inputs;
 pub mod serial;
 
-#[cfg(feature = "concurrent")]
+// #[cfg(feature = "concurrent")]
 mod concurrent;
 
 use utils::{collections::Vec, uninit_vector};

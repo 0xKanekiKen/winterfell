@@ -1,8 +1,14 @@
 use crate::FieldElement;
-use core::slice::{ChunksMut, Iter};
+use core::{
+    cmp,
+    slice::{ChunksMut, Iter},
+};
 
-#[cfg(feature = "concurrent")]
-use utils::rayon::{self, ParallelIterator};
+// #[cfg(feature = "concurrent")]
+use rayon::{
+    iter::plumbing::{bridge, Consumer, Producer, ProducerCallback, UnindexedConsumer},
+    prelude::*,
+};
 
 // FFTINPUTS TRAIT
 // ================================================================================================
@@ -21,9 +27,22 @@ pub trait FftInputs<E: FieldElement> {
         Self: 'c,
         E: 'c;
 
-    #[cfg(feature = "concurrent")]
+    // #[cfg(feature = "concurrent")]
     /// A parallel iterator over mutable chunks of this fftinputs.
-    type ParChunksMut<'c>: ParallelIterator<Item = Self::ChunkItem<'c>>
+    type ParChunksMut<'c>: IndexedParallelIterator<Item = Self::ChunkItem<'c>>
+    where
+        Self: 'c,
+        E: 'c;
+
+    /// An immutable chunk of this fftinputs.
+    type ImChunkItem<'b>: FftInputs<E>
+    where
+        Self: 'b,
+        E: 'b;
+
+    // #[cfg(feature = "concurrent")]
+    /// A parallel iterator over immutable chunks of this fftinputs.
+    type ParChunks<'c>: IndexedParallelIterator<Item = Self::ImChunkItem<'c>>
     where
         Self: 'c,
         E: 'c;
@@ -87,17 +106,17 @@ pub trait FftInputs<E: FieldElement> {
     // Need to implement these methods in the implementation of FftInputs for slices, mutable reference to slices
     // and RowMatrix.
 
-    #[cfg(feature = "concurrent")]
+    // #[cfg(feature = "concurrent")]
     /// Returns an iterator over chunks of size `chunk_size` of this fftinputs.
     fn par_chunks(&self, chunk_size: usize) -> Self::ParChunks<'_>;
 
-    #[cfg(feature = "concurrent")]
+    // #[cfg(feature = "concurrent")]
     /// Returns an iterator over mutable chunks of size `chunk_size` of this fftinputs.
-    fn par_mut_chunks(&mut self, chunk_size: usize) -> Self::ParChunks<'_>;
+    fn par_mut_chunks(&mut self, chunk_size: usize) -> Self::ParChunksMut<'_>;
 
-    #[cfg(feature = "concurrent")]
+    // #[cfg(feature = "concurrent")]
     /// Parallelizes the chone-and-shift-by operation.
-    fn par_clone_and_shift_by<S>(&mut self, source: &S, offset_factor: E::BaseField)
+    fn par_clone_and_shift_by<S>(&mut self, source: &S, offset: E::BaseField)
     where
         S: FftInputs<E> + ?Sized;
 }
@@ -113,6 +132,9 @@ where
     type ChunkItem<'b> = &'b mut [E] where E: 'b;
     type ChunksMut<'a> = ChunksMut<'a, E> where Self: 'a;
     type ElementIter<'i> = Iter<'i, E> where Self: 'i;
+    type ParChunksMut<'c> = rayon::slice::ChunksMut<'c, E> where Self: 'c;
+    type ParChunks<'c> = rayon::slice::Chunks<'c, E> where Self: 'c;
+    type ImChunkItem<'b> = &'b [E] where E: 'b;
 
     fn size(&self) -> usize {
         self.len()
@@ -183,6 +205,123 @@ where
     fn mut_chunks(&mut self, chunk_size: usize) -> Self::ChunksMut<'_> {
         self.chunks_mut(chunk_size)
     }
+
+    // CONCURRENT METHODS
+    // --------------------------------------------------------------------------------------------
+
+    fn par_chunks(&self, chunk_size: usize) -> Self::ParChunks<'_> {
+        rayon::prelude::ParallelSlice::par_chunks(self, chunk_size)
+    }
+
+    fn par_mut_chunks(&mut self, chunk_size: usize) -> Self::ParChunksMut<'_> {
+        self.par_chunks_mut(chunk_size)
+    }
+
+    fn par_clone_and_shift_by<S>(&mut self, source: &S, offset: E::BaseField)
+    where
+        S: FftInputs<E> + ?Sized,
+    {
+        let batch_size = source.size() / rayon::current_num_threads().next_power_of_two();
+        source
+            .par_chunks(batch_size)
+            .zip(self.par_mut_chunks(batch_size))
+            .enumerate()
+            .for_each(|(i, (source, destination))| {
+                let mut factor = offset.exp(((i * batch_size) as u64).into());
+                for (s, d) in source.iter().zip(destination.iter_mut()) {
+                    *d = (*s).mul_base(factor);
+                    factor *= offset;
+                }
+            });
+    }
+}
+
+/// An implementation of `FFtInputs` for references to slices of field elements.
+impl<'a, E> FftInputs<E> for &'a [E]
+where
+    E: FieldElement,
+{
+    type ChunkItem<'b> = &'b mut [E] where Self: 'b;
+    type ImChunkItem<'b> = &'b [E] where Self: 'b;
+    type ChunksMut<'c> = ChunksMut<'c, E> where Self: 'c;
+    type ElementIter<'i> = Iter<'i, E> where Self: 'i;
+    type ParChunksMut<'c> = rayon::slice::ChunksMut<'c, E> where Self: 'c;
+    type ParChunks<'c> = rayon::slice::Chunks<'c, E> where Self: 'c;
+
+    fn size(&self) -> usize {
+        <[E] as FftInputs<E>>::size(self)
+    }
+
+    fn iter(&self) -> Self::ElementIter<'_> {
+        <[E] as FftInputs<E>>::iter(self)
+    }
+
+    fn get(&self, idx: usize) -> &E {
+        <[E] as FftInputs<E>>::get(self, idx)
+    }
+
+    fn butterfly(&mut self, _offset: usize, _stride: usize) {
+        unimplemented!()
+    }
+
+    fn butterfly_twiddle(
+        &mut self,
+        _twiddle: <E as FieldElement>::BaseField,
+        _offset: usize,
+        _stride: usize,
+    ) {
+        unimplemented!()
+    }
+
+    fn swap_elements(&mut self, _i: usize, _j: usize) {
+        unimplemented!()
+    }
+
+    fn shift_by_series(
+        &mut self,
+        _offset: <E as FieldElement>::BaseField,
+        _increment: <E as FieldElement>::BaseField,
+        _num_skip: usize,
+    ) {
+        unimplemented!()
+    }
+
+    fn shift_by(&mut self, _offset: <E as FieldElement>::BaseField) {
+        unimplemented!()
+    }
+
+    fn clone_and_shift_by<S>(
+        &mut self,
+        _source: &S,
+        _init_offset: <E as FieldElement>::BaseField,
+        _offset_factor: <E as FieldElement>::BaseField,
+    ) where
+        S: FftInputs<E> + ?Sized,
+    {
+        unimplemented!()
+    }
+
+    fn mut_chunks(&mut self, _chunk_size: usize) -> Self::ChunksMut<'_> {
+        unimplemented!()
+    }
+
+    // CONCURRENT METHODS
+    // --------------------------------------------------------------------------------------------
+
+    fn par_chunks(&self, chunk_size: usize) -> Self::ParChunks<'_> {
+        <[E] as FftInputs<E>>::par_chunks(self, chunk_size)
+    }
+
+    fn par_mut_chunks(&mut self, _chunk_size: usize) -> Self::ParChunksMut<'_> {
+        unimplemented!()
+    }
+
+    fn par_clone_and_shift_by<S>(&mut self, _source: &S, _offset: <E as FieldElement>::BaseField)
+    where
+        S: FftInputs<E> + ?Sized,
+    {
+        unimplemented!()
+    }
 }
 
 /// An implementation of `FftInputs` for mutable references to slices of field elements.
@@ -191,8 +330,11 @@ where
     E: FieldElement,
 {
     type ChunkItem<'b> = &'b mut [E] where Self: 'b;
+    type ImChunkItem<'b> = &'b [E] where Self: 'b;
     type ChunksMut<'c> = ChunksMut<'c, E> where Self: 'c;
     type ElementIter<'i> = Iter<'i, E> where Self: 'i;
+    type ParChunks<'c> = rayon::slice::Chunks<'c, E> where Self: 'c;
+    type ParChunksMut<'c> = rayon::slice::ChunksMut<'c, E> where Self: 'c;
 
     fn size(&self) -> usize {
         <[E] as FftInputs<E>>::size(self)
@@ -241,6 +383,24 @@ where
 
     fn mut_chunks(&mut self, chunk_size: usize) -> Self::ChunksMut<'_> {
         <[E] as FftInputs<E>>::mut_chunks(self, chunk_size)
+    }
+
+    // CONCURRENT METHODS
+    // --------------------------------------------------------------------------------------------
+
+    fn par_chunks(&self, chunk_size: usize) -> Self::ParChunks<'_> {
+        <[E] as FftInputs<E>>::par_chunks(self, chunk_size)
+    }
+
+    fn par_mut_chunks(&mut self, chunk_size: usize) -> Self::ParChunksMut<'_> {
+        <[E] as FftInputs<E>>::par_mut_chunks(self, chunk_size)
+    }
+
+    fn par_clone_and_shift_by<S>(&mut self, source: &S, offset: E::BaseField)
+    where
+        S: FftInputs<E> + ?Sized,
+    {
+        <[E] as FftInputs<E>>::par_clone_and_shift_by(self, source, offset)
     }
 }
 
@@ -306,8 +466,11 @@ where
 /// Implementation of `FftInputs` for `RowMajor`.
 impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
     type ChunkItem<'b> = RowMajor<'b, E> where Self: 'b;
+    type ImChunkItem<'b> = RowMajor<'b, E> where Self: 'b;
     type ChunksMut<'c> = MatrixChunksMut<'c, E> where Self: 'c;
     type ElementIter<'i> = Iter<'i, E> where Self: 'i;
+    type ParChunksMut<'c> = MatrixChunksMut<'c, E> where Self: 'c;
+    type ParChunks<'c> = MatrixChunksMut<'c, E> where Self: 'c;
 
     fn size(&self) -> usize {
         self.data.len() / self.row_width
@@ -404,6 +567,50 @@ impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
             chunk_size,
         }
     }
+
+    // CONCURRENT METHODS
+    // --------------------------------------------------------------------------------------------
+
+    fn par_chunks(&self, chunk_size: usize) -> Self::ParChunks<'_> {
+        MatrixChunksMut {
+            data: RowMajor {
+                data: unsafe { &mut *(self as *const Self as *mut Self) }.as_mut_slice(),
+                row_width: self.row_width,
+            },
+            chunk_size,
+        }
+    }
+
+    fn par_mut_chunks(&mut self, chunk_size: usize) -> Self::ParChunksMut<'_> {
+        MatrixChunksMut {
+            data: RowMajor {
+                data: self.as_mut_slice(),
+                row_width: self.row_width,
+            },
+            chunk_size,
+        }
+    }
+
+    fn par_clone_and_shift_by<S>(&mut self, source: &S, offset: E::BaseField)
+    where
+        S: FftInputs<E> + ?Sized,
+    {
+        let batch_size = source.size() / rayon::current_num_threads().next_power_of_two();
+        source
+            .par_chunks(batch_size)
+            .zip(self.par_mut_chunks(batch_size))
+            .enumerate()
+            .for_each(|(i, (source, destination))| {
+                let mut factor = offset.exp(((i * batch_size) as u64).into());
+                for x in 0..source.size() {
+                    for y in 0..destination.row_width {
+                        destination.data[x * destination.row_width + y] =
+                            source.get(x * destination.row_width + y).mul_base(factor)
+                    }
+                    factor *= offset;
+                }
+            });
+    }
 }
 
 /// A mutable iterator over chunks of a mutable FftInputs. This struct is created
@@ -425,6 +632,15 @@ where
     }
 }
 
+impl<'a, E> DoubleEndedIterator for MatrixChunksMut<'a, E>
+where
+    E: FieldElement,
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
+}
+
 impl<'a, E: FieldElement> Iterator for MatrixChunksMut<'a, E> {
     type Item = RowMajor<'a, E>;
 
@@ -436,5 +652,84 @@ impl<'a, E: FieldElement> Iterator for MatrixChunksMut<'a, E> {
         let (head, tail) = self.data.split_at_mut(at);
         self.data = tail;
         Some(head)
+    }
+}
+
+/// Implement a parallel iterator for MatrixChunksMut. This is a parallel version
+/// of the MatrixChunksMut iterator.
+impl<'a, E> ParallelIterator for MatrixChunksMut<'a, E>
+where
+    E: FieldElement + Send,
+{
+    type Item = RowMajor<'a, E>;
+
+    fn drive_unindexed<C>(self, consumer: C) -> C::Result
+    where
+        C: UnindexedConsumer<Self::Item>,
+    {
+        bridge(self, consumer)
+    }
+
+    fn opt_len(&self) -> Option<usize> {
+        Some(rayon::iter::IndexedParallelIterator::len(self))
+    }
+}
+
+impl<'a, E> IndexedParallelIterator for MatrixChunksMut<'a, E>
+where
+    E: FieldElement + Send,
+{
+    fn with_producer<CB: ProducerCallback<Self::Item>>(self, callback: CB) -> CB::Output {
+        let producer = ChunksMutProducer {
+            chunk_size: self.chunk_size,
+            data: self.data,
+        };
+        callback.callback(producer)
+    }
+
+    fn drive<C: Consumer<Self::Item>>(self, consumer: C) -> C::Result {
+        bridge(self, consumer)
+    }
+
+    fn len(&self) -> usize {
+        self.data.len() / self.chunk_size
+    }
+}
+
+struct ChunksMutProducer<'a, E>
+where
+    E: FieldElement,
+{
+    chunk_size: usize,
+    data: RowMajor<'a, E>,
+}
+
+impl<'a, E> Producer for ChunksMutProducer<'a, E>
+where
+    E: FieldElement,
+{
+    type Item = RowMajor<'a, E>;
+    type IntoIter = MatrixChunksMut<'a, E>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        MatrixChunksMut {
+            data: self.data,
+            chunk_size: self.chunk_size,
+        }
+    }
+
+    fn split_at(mut self, index: usize) -> (Self, Self) {
+        let elem_index = cmp::min(index * self.chunk_size, self.data.len());
+        let (left, right) = self.data.split_at_mut(elem_index);
+        (
+            ChunksMutProducer {
+                chunk_size: self.chunk_size,
+                data: left,
+            },
+            ChunksMutProducer {
+                chunk_size: self.chunk_size,
+                data: right,
+            },
+        )
     }
 }
