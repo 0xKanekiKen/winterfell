@@ -131,10 +131,10 @@ where
 {
     type ChunkItem<'b> = &'b mut [E] where E: 'b;
     type ChunksMut<'a> = ChunksMut<'a, E> where Self: 'a;
-    type ElementIter<'i> = Iter<'i, E> where Self: 'i;
     type ParChunksMut<'c> = rayon::slice::ChunksMut<'c, E> where Self: 'c;
-    type ParChunks<'c> = rayon::slice::Chunks<'c, E> where Self: 'c;
     type ImChunkItem<'b> = &'b [E] where E: 'b;
+    type ParChunks<'c> = rayon::slice::Chunks<'c, E> where Self: 'c;
+    type ElementIter<'i> = Iter<'i, E> where Self: 'i;
 
     fn size(&self) -> usize {
         self.len()
@@ -572,9 +572,19 @@ impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
     // --------------------------------------------------------------------------------------------
 
     fn par_chunks(&self, chunk_size: usize) -> Self::ParChunks<'_> {
+        // convert a reference to a mutable reference using UnSafe this is safe because
+        // we are not actually mutating the data, we are just pretending to be able to mutate it.
+        // This is necessary because the `par_chunks` method is defined on `FftInputs` which is
+        // implemented for both `&RowMajor` and `&mut RowMajor`. We need to be able to call `par_chunks` on
+        // both references, but we can only implement `par_chunks` on
+        // `&mut RowMajor` because it returns a mutable iterator.
+        // This is a hack to get around that.
+        // UnsafeCell::new(self).get_mut().par_chunks(chunk_size)
         MatrixChunksMut {
             data: RowMajor {
-                data: unsafe { &mut *(self as *const Self as *mut Self) }.as_mut_slice(),
+                data: unsafe {
+                    std::slice::from_raw_parts_mut(self.data.as_ptr() as *mut E, self.data.len())
+                },
                 row_width: self.row_width,
             },
             chunk_size,

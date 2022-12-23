@@ -15,7 +15,7 @@ use winter_math::{
 const SIZES: [usize; 3] = [262_144, 524_288, 1_048_576];
 
 fn interpolate_columns(c: &mut Criterion) {
-    let mut group = c.benchmark_group("interpolate_columns");
+    let mut group = c.benchmark_group("matrix_interpolate_columns");
     group.sample_size(10);
     group.measurement_time(Duration::from_secs(10));
 
@@ -36,7 +36,7 @@ fn interpolate_columns(c: &mut Criterion) {
 }
 
 fn interpolate_matrix(c: &mut Criterion) {
-    let mut group = c.benchmark_group("interpolate_matrix");
+    let mut group = c.benchmark_group("matrix_interpolate_matrix");
     group.sample_size(10);
     group.measurement_time(Duration::from_secs(10));
 
