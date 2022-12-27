@@ -20,7 +20,7 @@ pub fn evaluate_poly<B, E, I>(p: &mut I, twiddles: &[B])
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
-    I: FftInputs<E> + Send,
+    I: FftInputs<E> + Send + ?Sized,
 {
     split_radix_fft(p, twiddles);
     permute(p);
@@ -38,7 +38,7 @@ pub fn evaluate_poly_with_offset<B, E, I>(
 ) where
     B: StarkField,
     E: FieldElement<BaseField = B>,
-    I: FftInputs<E> + Send + Sync,
+    I: FftInputs<E> + Send + Sync + ?Sized,
 {
     let g = B::get_root_of_unity(log2(p.size() * blowup_factor));
 
@@ -66,7 +66,7 @@ pub fn interpolate_poly<B, E, I>(v: &mut I, inv_twiddles: &[B])
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
-    I: FftInputs<E> + Send,
+    I: FftInputs<E> + Send + ?Sized,
 {
     split_radix_fft(v, inv_twiddles);
     let inv_length = B::inv((v.size() as u64).into());
@@ -89,7 +89,7 @@ pub fn interpolate_poly_with_offset<B, E, I>(values: &mut I, inv_twiddles: &[B],
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
-    I: FftInputs<E> + Send,
+    I: FftInputs<E> + Send + ?Sized,
 {
     split_radix_fft(values, inv_twiddles);
     permute(values);
@@ -113,7 +113,7 @@ where
 pub fn permute<E, I>(v: &mut I)
 where
     E: FieldElement,
-    I: FftInputs<E> + Send,
+    I: FftInputs<E> + Send + ?Sized,
 {
     let n = v.size();
     let num_batches = rayon::current_num_threads().next_power_of_two();
@@ -146,7 +146,7 @@ pub(super) fn split_radix_fft<B, E, I>(values: &mut I, twiddles: &[B])
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
-    I: FftInputs<E>,
+    I: FftInputs<E> + ?Sized,
 {
     // generator of the domain should be in the middle of twiddles
     let n = values.size();
@@ -191,7 +191,7 @@ where
 fn transpose_square_stretch<E, I>(matrix: &mut I, size: usize, stretch: usize)
 where
     E: FieldElement,
-    I: FftInputs<E>,
+    I: FftInputs<E> + ?Sized,
 {
     assert_eq!(matrix.size(), size * size * stretch);
     match stretch {
@@ -204,7 +204,7 @@ where
 fn transpose_square_1<E, I>(matrix: &mut I, size: usize)
 where
     E: FieldElement,
-    I: FftInputs<E>,
+    I: FftInputs<E> + ?Sized,
 {
     debug_assert_eq!(matrix.size(), size * size);
     if size % 2 != 0 {
@@ -229,7 +229,7 @@ where
 fn transpose_square_2<E, I>(matrix: &mut I, size: usize)
 where
     E: FieldElement,
-    I: FftInputs<E>,
+    I: FftInputs<E> + ?Sized,
 {
     debug_assert_eq!(matrix.size(), 2 * size * size);
 

@@ -28,7 +28,7 @@ fn interpolate_columns(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("simple", size), |bench| {
             bench.iter_with_large_drop(|| {
                 for column in columns.iter_mut() {
-                    fft::serial::interpolate_poly(column.as_mut_slice(), &inv_twiddles);
+                    fft::concurrent::interpolate_poly(column.as_mut_slice(), &inv_twiddles);
                 }
             });
         });
@@ -41,7 +41,7 @@ fn interpolate_columns(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("with_offset", size), |bench| {
             bench.iter_with_large_drop(|| {
                 for column in columns.iter_mut() {
-                    fft::serial::interpolate_poly_with_offset(
+                    fft::concurrent::interpolate_poly_with_offset(
                         column.as_mut_slice(),
                         &inv_twiddles,
                         BaseElement::GENERATOR,
@@ -110,7 +110,9 @@ fn interpolate_matrix(c: &mut Criterion) {
 
         let inv_twiddles = fft::get_inv_twiddles::<BaseElement>(size);
         group.bench_function(BenchmarkId::new("simple", size), |bench| {
-            bench.iter_with_large_drop(|| fft::serial::interpolate_poly(&mut table, &inv_twiddles));
+            bench.iter_with_large_drop(|| {
+                fft::concurrent::interpolate_poly(&mut table, &inv_twiddles)
+            });
         });
     }
 
@@ -125,7 +127,7 @@ fn interpolate_matrix(c: &mut Criterion) {
         let inv_twiddles = fft::get_inv_twiddles::<BaseElement>(size);
         group.bench_function(BenchmarkId::new("with_offset", size), |bench| {
             bench.iter_with_large_drop(|| {
-                fft::serial::interpolate_poly_with_offset(
+                fft::concurrent::interpolate_poly_with_offset(
                     &mut table,
                     &inv_twiddles,
                     BaseElement::GENERATOR,

@@ -156,4 +156,6 @@ pub(super) fn fft_in_place<B, E, I>(
             I::butterfly_twiddle(values, twiddles[i], j, stride);
         }
     }
+
+    values.size();
 }

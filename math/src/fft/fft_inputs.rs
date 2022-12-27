@@ -1,6 +1,7 @@
 use crate::FieldElement;
 use core::{
     cmp,
+    fmt::{self, Debug, Formatter},
     slice::{ChunksMut, Iter},
 };
 
@@ -411,6 +412,19 @@ pub struct RowMajor<'a, E: FieldElement> {
     row_width: usize,
 }
 
+/// Debug implementation for `RowMajor`.
+impl<'a, E> Debug for RowMajor<'a, E>
+where
+    E: FieldElement,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RowMajor")
+            .field("data", &self.data)
+            .field("row_width", &self.row_width)
+            .finish()
+    }
+}
+
 /// An implementation of RowMajor for mutable references to slices of field elements.
 impl<'a, E> RowMajor<'a, E>
 where
@@ -469,8 +483,8 @@ impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
     type ImChunkItem<'b> = RowMajor<'b, E> where Self: 'b;
     type ChunksMut<'c> = MatrixChunksMut<'c, E> where Self: 'c;
     type ElementIter<'i> = Iter<'i, E> where Self: 'i;
-    type ParChunksMut<'c> = MatrixChunksMut<'c, E> where Self: 'c;
-    type ParChunks<'c> = MatrixChunksMut<'c, E> where Self: 'c;
+    type ParChunksMut<'c> = ParMatrixChunksMut<'c, E> where Self: 'c;
+    type ParChunks<'c> = ParMatrixChunksMut<'c, E> where Self: 'c;
 
     fn size(&self) -> usize {
         self.data.len() / self.row_width
@@ -523,8 +537,8 @@ impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
 
     fn shift_by_series(&mut self, offset: E::BaseField, increment: E::BaseField, num_skip: usize) {
         let increment = E::from(increment);
+        let mut offset = E::from(offset);
         for d in num_skip..self.size() {
-            let mut offset = E::from(offset);
             for i in 0..self.row_width {
                 self.data[d * self.row_width + i] *= offset
             }
@@ -572,15 +586,14 @@ impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
     // --------------------------------------------------------------------------------------------
 
     fn par_chunks(&self, chunk_size: usize) -> Self::ParChunks<'_> {
-        // convert a reference to a mutable reference using UnSafe this is safe because
+        // SAFETY: convert a reference to a mutable reference. This is safe because
         // we are not actually mutating the data, we are just pretending to be able to mutate it.
         // This is necessary because the `par_chunks` method is defined on `FftInputs` which is
         // implemented for both `&RowMajor` and `&mut RowMajor`. We need to be able to call `par_chunks` on
         // both references, but we can only implement `par_chunks` on
         // `&mut RowMajor` because it returns a mutable iterator.
         // This is a hack to get around that.
-        // UnsafeCell::new(self).get_mut().par_chunks(chunk_size)
-        MatrixChunksMut {
+        ParMatrixChunksMut {
             data: RowMajor {
                 data: unsafe {
                     std::slice::from_raw_parts_mut(self.data.as_ptr() as *mut E, self.data.len())
@@ -592,7 +605,7 @@ impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
     }
 
     fn par_mut_chunks(&mut self, chunk_size: usize) -> Self::ParChunksMut<'_> {
-        MatrixChunksMut {
+        ParMatrixChunksMut {
             data: RowMajor {
                 data: self.as_mut_slice(),
                 row_width: self.row_width,
@@ -665,9 +678,17 @@ impl<'a, E: FieldElement> Iterator for MatrixChunksMut<'a, E> {
     }
 }
 
+pub struct ParMatrixChunksMut<'a, E>
+where
+    E: FieldElement,
+{
+    data: RowMajor<'a, E>,
+    chunk_size: usize,
+}
+
 /// Implement a parallel iterator for MatrixChunksMut. This is a parallel version
 /// of the MatrixChunksMut iterator.
-impl<'a, E> ParallelIterator for MatrixChunksMut<'a, E>
+impl<'a, E> ParallelIterator for ParMatrixChunksMut<'a, E>
 where
     E: FieldElement + Send,
 {
@@ -685,7 +706,7 @@ where
     }
 }
 
-impl<'a, E> IndexedParallelIterator for MatrixChunksMut<'a, E>
+impl<'a, E> IndexedParallelIterator for ParMatrixChunksMut<'a, E>
 where
     E: FieldElement + Send,
 {
@@ -702,7 +723,7 @@ where
     }
 
     fn len(&self) -> usize {
-        self.data.len() / self.chunk_size
+        self.data.size() / self.chunk_size
     }
 }
 
@@ -729,7 +750,7 @@ where
     }
 
     fn split_at(mut self, index: usize) -> (Self, Self) {
-        let elem_index = cmp::min(index * self.chunk_size, self.data.len());
+        let elem_index = cmp::min(index * self.chunk_size, self.data.size());
         let (left, right) = self.data.split_at_mut(elem_index);
         (
             ChunksMutProducer {
