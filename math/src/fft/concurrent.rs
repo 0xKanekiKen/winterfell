@@ -7,14 +7,21 @@ use crate::{
     field::{FieldElement, StarkField},
     utils::log2,
 };
-use utils::{collections::Vec, iterators::*, rayon, uninit_vector};
+use rayon::prelude::*;
+
+use super::fft_inputs::FftInputs;
 
 // POLYNOMIAL EVALUATION
 // ================================================================================================
 
 /// Evaluates polynomial `p` using FFT algorithm; the evaluation is done in-place, meaning
 /// `p` is updated with results of the evaluation.
-pub fn evaluate_poly<B: StarkField, E: FieldElement<BaseField = B>>(p: &mut [E], twiddles: &[B]) {
+pub fn evaluate_poly<B, E, I>(p: &mut I, twiddles: &[B])
+where
+    B: StarkField,
+    E: FieldElement<BaseField = B>,
+    I: FftInputs<E> + Send + ?Sized,
+{
     split_radix_fft(p, twiddles);
     permute(p);
 }
@@ -22,29 +29,32 @@ pub fn evaluate_poly<B: StarkField, E: FieldElement<BaseField = B>>(p: &mut [E],
 /// Evaluates polynomial `p` using FFT algorithm and returns the result. The polynomial is
 /// evaluated over domain specified by `twiddles`, expanded by the `blowup_factor`, and shifted
 /// by the `domain_offset`.
-pub fn evaluate_poly_with_offset<B: StarkField, E: FieldElement<BaseField = B>>(
-    p: &[E],
+pub fn evaluate_poly_with_offset<B, E, I>(
+    p: &I,
     twiddles: &[B],
     domain_offset: B,
     blowup_factor: usize,
-) -> Vec<E> {
-    let domain_size = p.len() * blowup_factor;
-    let g = B::get_root_of_unity(log2(domain_size));
-    let mut result = unsafe { uninit_vector(domain_size) };
+    result: &mut I,
+) where
+    B: StarkField,
+    E: FieldElement<BaseField = B>,
+    I: FftInputs<E> + Send + Sync + ?Sized,
+{
+    let g = B::get_root_of_unity(log2(p.size() * blowup_factor));
 
     result
-        .as_mut_slice()
-        .par_chunks_mut(p.len())
+        .par_mut_chunks(p.size())
         .enumerate()
-        .for_each(|(i, chunk)| {
+        .for_each(|(i, mut chunk)| {
             let idx = super::permute_index(blowup_factor, i) as u64;
             let offset = g.exp(idx.into()) * domain_offset;
-            clone_and_shift(p, chunk, offset);
-            split_radix_fft(chunk, twiddles);
+            // Note: We would need to implement a parallel verion of clone_and_shift_by in
+            // FftInputs.
+            chunk.par_clone_and_shift_by(p, offset);
+            split_radix_fft(&mut chunk, twiddles);
         });
 
-    permute(&mut result);
-    result
+    permute(result);
 }
 
 // POLYNOMIAL INTERPOLATION
@@ -52,62 +62,74 @@ pub fn evaluate_poly_with_offset<B: StarkField, E: FieldElement<BaseField = B>>(
 
 /// Uses FFT algorithm to interpolate a polynomial from provided `values`; the interpolation
 /// is done in-place, meaning `values` are updated with polynomial coefficients.
-pub fn interpolate_poly<B, E>(v: &mut [E], inv_twiddles: &[B])
+pub fn interpolate_poly<B, E, I>(v: &mut I, inv_twiddles: &[B])
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
+    I: FftInputs<E> + Send + ?Sized,
 {
     split_radix_fft(v, inv_twiddles);
-    let inv_length = E::inv((v.len() as u64).into());
-    v.par_iter_mut().for_each(|e| *e *= inv_length);
+    let inv_length = B::inv((v.size() as u64).into());
+
+    let batch_size = v.size() / rayon::current_num_threads().next_power_of_two();
+
+    // Note: One alternate solution would be to implement a parallel version of this loop in
+    // FftInputs.
+    v.par_mut_chunks(batch_size)
+        .enumerate()
+        .for_each(|(_i, mut batch)| {
+            batch.shift_by(inv_length);
+        });
     permute(v);
 }
 
 /// Uses FFT algorithm to interpolate a polynomial from provided `values` over the domain defined
 /// by `inv_twiddles` and offset by `domain_offset` factor.
-pub fn interpolate_poly_with_offset<B, E>(values: &mut [E], inv_twiddles: &[B], domain_offset: B)
+pub fn interpolate_poly_with_offset<B, E, I>(values: &mut I, inv_twiddles: &[B], domain_offset: B)
 where
     B: StarkField,
     E: FieldElement<BaseField = B>,
+    I: FftInputs<E> + Send + ?Sized,
 {
     split_radix_fft(values, inv_twiddles);
     permute(values);
 
-    let domain_offset = E::inv(domain_offset.into());
-    let inv_len = E::inv((values.len() as u64).into());
-    let batch_size = values.len() / rayon::current_num_threads().next_power_of_two();
+    let domain_offset = B::inv(domain_offset);
+    let inv_len = B::inv((values.size() as u64).into());
+    let batch_size = values.size() / rayon::current_num_threads().next_power_of_two();
 
     values
-        .par_chunks_mut(batch_size)
+        .par_mut_chunks(batch_size)
         .enumerate()
-        .for_each(|(i, batch)| {
-            let mut offset = domain_offset.exp(((i * batch_size) as u64).into()) * inv_len;
-            for coeff in batch.iter_mut() {
-                *coeff = *coeff * offset;
-                offset = offset * domain_offset;
-            }
+        .for_each(|(i, mut batch)| {
+            let offset = domain_offset.exp(((i * batch_size) as u64).into()) * inv_len;
+            batch.shift_by_series(offset, domain_offset, 0);
         });
 }
 
 // PERMUTATIONS
 // ================================================================================================
 
-pub fn permute<E: FieldElement>(v: &mut [E]) {
-    let n = v.len();
+pub fn permute<E, I>(v: &mut I)
+where
+    E: FieldElement,
+    I: FftInputs<E> + Send + ?Sized,
+{
+    let n = v.size();
     let num_batches = rayon::current_num_threads().next_power_of_two();
     let batch_size = n / num_batches;
     rayon::scope(|s| {
         for batch_idx in 0..num_batches {
             // create another mutable reference to the slice of values to use in a new thread; this
             // is OK because we never write the same positions in the slice from different threads
-            let values = unsafe { &mut *(&mut v[..] as *mut [E]) };
+            let values = unsafe { &mut *(&mut *v as *mut I) };
             s.spawn(move |_| {
                 let batch_start = batch_idx * batch_size;
                 let batch_end = batch_start + batch_size;
                 for i in batch_start..batch_end {
                     let j = super::permute_index(n, i);
                     if j > i {
-                        values.swap(i, j);
+                        values.swap_elements(i, j);
                     }
                 }
             });
@@ -120,12 +142,14 @@ pub fn permute<E: FieldElement>(v: &mut [E]) {
 
 /// In-place recursive FFT with permuted output.
 /// Adapted from: https://github.com/0xProject/OpenZKP/tree/master/algebra/primefield/src/fft
-pub(super) fn split_radix_fft<B: StarkField, E: FieldElement<BaseField = B>>(
-    values: &mut [E],
-    twiddles: &[B],
-) {
+pub(super) fn split_radix_fft<B, E, I>(values: &mut I, twiddles: &[B])
+where
+    B: StarkField,
+    E: FieldElement<BaseField = B>,
+    I: FftInputs<E> + ?Sized,
+{
     // generator of the domain should be in the middle of twiddles
-    let n = values.len();
+    let n = values.size();
     let g = twiddles[twiddles.len() / 2];
     debug_assert_eq!(g.exp((n as u32).into()), E::BaseField::ONE);
 
@@ -140,35 +164,36 @@ pub(super) fn split_radix_fft<B: StarkField, E: FieldElement<BaseField = B>>(
 
     // apply inner FFTs
     values
-        .par_chunks_mut(outer_len)
-        .for_each(|row| super::serial::fft_in_place(row, &twiddles, stretch, stretch, 0));
+        .par_mut_chunks(outer_len)
+        .for_each(|mut row| super::serial::fft_in_place(&mut row, twiddles, stretch, stretch, 0));
 
     // transpose inner x inner x stretch square matrix
     transpose_square_stretch(values, inner_len, stretch);
 
     // apply outer FFTs
     values
-        .par_chunks_mut(outer_len)
+        .par_mut_chunks(outer_len)
         .enumerate()
-        .for_each(|(i, row)| {
+        .for_each(|(i, mut row)| {
             if i > 0 {
                 let i = super::permute_index(inner_len, i);
                 let inner_twiddle = g.exp((i as u32).into());
-                let mut outer_twiddle = inner_twiddle;
-                for element in row.iter_mut().skip(1) {
-                    *element = (*element).mul_base(outer_twiddle);
-                    outer_twiddle = outer_twiddle * inner_twiddle;
-                }
+                let outer_twiddle = inner_twiddle;
+                row.shift_by_series(outer_twiddle, inner_twiddle, 1);
             }
-            super::serial::fft_in_place(row, &twiddles, 1, 1, 0)
+            super::serial::fft_in_place(&mut row, twiddles, 1, 1, 0)
         });
 }
 
 // TRANSPOSING
 // ================================================================================================
 
-fn transpose_square_stretch<T>(matrix: &mut [T], size: usize, stretch: usize) {
-    assert_eq!(matrix.len(), size * size * stretch);
+fn transpose_square_stretch<E, I>(matrix: &mut I, size: usize, stretch: usize)
+where
+    E: FieldElement,
+    I: FftInputs<E> + ?Sized,
+{
+    assert_eq!(matrix.size(), size * size * stretch);
     match stretch {
         1 => transpose_square_1(matrix, size),
         2 => transpose_square_2(matrix, size),
@@ -176,8 +201,12 @@ fn transpose_square_stretch<T>(matrix: &mut [T], size: usize, stretch: usize) {
     }
 }
 
-fn transpose_square_1<T>(matrix: &mut [T], size: usize) {
-    debug_assert_eq!(matrix.len(), size * size);
+fn transpose_square_1<E, I>(matrix: &mut I, size: usize)
+where
+    E: FieldElement,
+    I: FftInputs<E> + ?Sized,
+{
+    debug_assert_eq!(matrix.size(), size * size);
     if size % 2 != 0 {
         unimplemented!("odd sizes are not supported");
     }
@@ -185,46 +214,32 @@ fn transpose_square_1<T>(matrix: &mut [T], size: usize) {
     // iterate over upper-left triangle, working in 2x2 blocks
     for row in (0..size).step_by(2) {
         let i = row * size + row;
-        matrix.swap(i + 1, i + size);
+        matrix.swap_elements(i + 1, i + size);
         for col in (row..size).step_by(2).skip(1) {
             let i = row * size + col;
             let j = col * size + row;
-            matrix.swap(i, j);
-            matrix.swap(i + 1, j + size);
-            matrix.swap(i + size, j + 1);
-            matrix.swap(i + size + 1, j + size + 1);
+            matrix.swap_elements(i, j);
+            matrix.swap_elements(i + 1, j + size);
+            matrix.swap_elements(i + size, j + 1);
+            matrix.swap_elements(i + size + 1, j + size + 1);
         }
     }
 }
 
-fn transpose_square_2<T>(matrix: &mut [T], size: usize) {
-    debug_assert_eq!(matrix.len(), 2 * size * size);
+fn transpose_square_2<E, I>(matrix: &mut I, size: usize)
+where
+    E: FieldElement,
+    I: FftInputs<E> + ?Sized,
+{
+    debug_assert_eq!(matrix.size(), 2 * size * size);
 
     // iterate over upper-left triangle, working in 1x2 blocks
     for row in 0..size {
         for col in (row..size).skip(1) {
             let i = (row * size + col) * 2;
             let j = (col * size + row) * 2;
-            matrix.swap(i, j);
-            matrix.swap(i + 1, j + 1);
+            matrix.swap_elements(i, j);
+            matrix.swap_elements(i + 1, j + 1);
         }
     }
-}
-
-// HELPER FUNCTIONS
-// ================================================================================================
-
-fn clone_and_shift<E: FieldElement>(source: &[E], destination: &mut [E], offset: E::BaseField) {
-    let batch_size = source.len() / rayon::current_num_threads().next_power_of_two();
-    source
-        .par_chunks(batch_size)
-        .zip(destination.par_chunks_mut(batch_size))
-        .enumerate()
-        .for_each(|(i, (source, destination))| {
-            let mut factor = offset.exp(((i * batch_size) as u64).into());
-            for (s, d) in source.iter().zip(destination.iter_mut()) {
-                *d = (*s).mul_base(factor);
-                factor = factor * offset;
-            }
-        });
 }

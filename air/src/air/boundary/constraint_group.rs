@@ -75,13 +75,13 @@ where
     // --------------------------------------------------------------------------------------------
 
     /// Returns a list of boundary constraints in this group.
-    pub fn constraints(&self) -> &[BoundaryConstraint<F, E>] {
-        &self.constraints
+    pub fn constraints(&mut self) -> &mut [BoundaryConstraint<F, E>] {
+        &mut self.constraints
     }
 
     /// Returns a divisor applicable to all boundary constraints in this group.
-    pub fn divisor(&self) -> &ConstraintDivisor<F::BaseField> {
-        &self.divisor
+    pub fn divisor(&mut self) -> &mut ConstraintDivisor<F::BaseField> {
+        &mut self.divisor
     }
 
     /// Returns a degree adjustment factor for all boundary constraints in this group.
@@ -128,7 +128,7 @@ where
     ///
     /// Thus, the merged evaluations represent a polynomial of degree $D$, as the degree of the
     /// numerator is $D + deg(z(x))$, and the division by $z(x)$ reduces the degree by $deg(z(x))$.
-    pub fn evaluate_at(&self, state: &[E], x: E, xp: E) -> E {
+    pub fn evaluate_at(&mut self, state: &[E], x: E, xp: E) -> E {
         debug_assert_eq!(
             x.exp(self.degree_adjustment.into()),
             xp,

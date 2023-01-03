@@ -186,8 +186,8 @@ impl<E: FieldElement> Matrix<E> {
     ///   [StarkDomain] using FFT algorithm. The domain specification includes the size of the
     ///   subgroup as well as the domain offset (to define a coset).
     /// * The resulting evaluations are returned in a new Matrix.
-    pub fn evaluate_columns_over(&self, domain: &StarkDomain<E::BaseField>) -> Self {
-        let columns = iter!(self.columns)
+    pub fn evaluate_columns_over(&mut self, domain: &StarkDomain<E::BaseField>) -> Self {
+        let columns = iter_mut!(self.columns)
             .map(|poly| {
                 fft::evaluate_poly_with_offset(
                     poly,
