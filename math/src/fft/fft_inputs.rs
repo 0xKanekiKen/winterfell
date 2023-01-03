@@ -223,16 +223,14 @@ where
         S: FftInputs<E> + ?Sized,
     {
         let batch_size = source.size() / rayon::current_num_threads().next_power_of_two();
+
         source
             .par_chunks(batch_size)
             .zip(self.par_mut_chunks(batch_size))
             .enumerate()
-            .for_each(|(i, (source, destination))| {
-                let mut factor = offset.exp(((i * batch_size) as u64).into());
-                for (s, d) in source.iter().zip(destination.iter_mut()) {
-                    *d = (*s).mul_base(factor);
-                    factor *= offset;
-                }
+            .for_each(|(i, (src, dest))| {
+                let factor = offset.exp(((i * batch_size) as u64).into());
+                dest.clone_and_shift_by(&src, factor, offset);
             });
     }
 }
@@ -449,7 +447,7 @@ where
 
     /// Returns the number of elements in the underlying slice.
     pub fn len(&self) -> usize {
-        self.data.len()
+        self.data.len() / self.row_width
     }
 
     /// Returns if the underlying slice is empty.
@@ -483,8 +481,8 @@ impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
     type ImChunkItem<'b> = RowMajor<'b, E> where Self: 'b;
     type ChunksMut<'c> = MatrixChunksMut<'c, E> where Self: 'c;
     type ElementIter<'i> = Iter<'i, E> where Self: 'i;
-    type ParChunksMut<'c> = ParMatrixChunksMut<'c, E> where Self: 'c;
-    type ParChunks<'c> = ParMatrixChunksMut<'c, E> where Self: 'c;
+    type ParChunksMut<'c> = MatrixChunksMut<'c, E> where Self: 'c;
+    type ParChunks<'c> = MatrixChunksMut<'c, E> where Self: 'c;
 
     fn size(&self) -> usize {
         self.data.len() / self.row_width
@@ -593,7 +591,7 @@ impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
         // both references, but we can only implement `par_chunks` on
         // `&mut RowMajor` because it returns a mutable iterator.
         // This is a hack to get around that.
-        ParMatrixChunksMut {
+        MatrixChunksMut {
             data: RowMajor {
                 data: unsafe {
                     std::slice::from_raw_parts_mut(self.data.as_ptr() as *mut E, self.data.len())
@@ -605,7 +603,7 @@ impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
     }
 
     fn par_mut_chunks(&mut self, chunk_size: usize) -> Self::ParChunksMut<'_> {
-        ParMatrixChunksMut {
+        MatrixChunksMut {
             data: RowMajor {
                 data: self.as_mut_slice(),
                 row_width: self.row_width,
@@ -619,19 +617,14 @@ impl<'a, E: FieldElement> FftInputs<E> for RowMajor<'a, E> {
         S: FftInputs<E> + ?Sized,
     {
         let batch_size = source.size() / rayon::current_num_threads().next_power_of_two();
+
         source
             .par_chunks(batch_size)
             .zip(self.par_mut_chunks(batch_size))
             .enumerate()
-            .for_each(|(i, (source, destination))| {
-                let mut factor = offset.exp(((i * batch_size) as u64).into());
-                for x in 0..source.size() {
-                    for y in 0..destination.row_width {
-                        destination.data[x * destination.row_width + y] =
-                            source.get(x * destination.row_width + y).mul_base(factor)
-                    }
-                    factor *= offset;
-                }
+            .for_each(|(i, (src, mut dest))| {
+                let factor = offset.exp(((i * batch_size) as u64).into());
+                dest.clone_and_shift_by(&src, factor, offset);
             });
     }
 }
@@ -651,7 +644,7 @@ where
     E: FieldElement,
 {
     fn len(&self) -> usize {
-        self.data.len()
+        self.data.size()
     }
 }
 
@@ -660,7 +653,13 @@ where
     E: FieldElement,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
-        todo!()
+        if self.len() == 0 {
+            return None;
+        }
+        let at = self.chunk_size.min(self.len());
+        let (head, tail) = self.data.split_at_mut(at);
+        self.data = head;
+        Some(tail)
     }
 }
 
@@ -678,17 +677,17 @@ impl<'a, E: FieldElement> Iterator for MatrixChunksMut<'a, E> {
     }
 }
 
-pub struct ParMatrixChunksMut<'a, E>
-where
-    E: FieldElement,
-{
-    data: RowMajor<'a, E>,
-    chunk_size: usize,
-}
+// pub struct ParMatrixChunksMut<'a, E>
+// where
+//     E: FieldElement,
+// {
+//     data: RowMajor<'a, E>,
+//     chunk_size: usize,
+// }
 
 /// Implement a parallel iterator for MatrixChunksMut. This is a parallel version
 /// of the MatrixChunksMut iterator.
-impl<'a, E> ParallelIterator for ParMatrixChunksMut<'a, E>
+impl<'a, E> ParallelIterator for MatrixChunksMut<'a, E>
 where
     E: FieldElement + Send,
 {
@@ -706,7 +705,7 @@ where
     }
 }
 
-impl<'a, E> IndexedParallelIterator for ParMatrixChunksMut<'a, E>
+impl<'a, E> IndexedParallelIterator for MatrixChunksMut<'a, E>
 where
     E: FieldElement + Send,
 {
@@ -723,7 +722,7 @@ where
     }
 
     fn len(&self) -> usize {
-        self.data.size() / self.chunk_size
+        div_round_up(self.data.size(), self.chunk_size)
     }
 }
 
@@ -762,5 +761,15 @@ where
                 data: right,
             },
         )
+    }
+}
+
+#[inline]
+pub fn div_round_up(n: usize, divisor: usize) -> usize {
+    debug_assert!(divisor != 0, "Division by zero!");
+    if n == 0 {
+        0
+    } else {
+        (n - 1) / divisor + 1
     }
 }

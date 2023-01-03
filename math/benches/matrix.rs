@@ -67,7 +67,7 @@ fn evaluate_columns(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("simple", size), |bench| {
             bench.iter_with_large_drop(|| {
                 for column in columns.iter_mut() {
-                    fft::serial::evaluate_poly(column.as_mut_slice(), &twiddles);
+                    fft::concurrent::evaluate_poly(column.as_mut_slice(), &twiddles);
                 }
             });
         });
@@ -81,7 +81,7 @@ fn evaluate_columns(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("with_offset", size), |bench| {
             bench.iter_with_large_drop(|| {
                 for column in columns.iter_mut() {
-                    fft::serial::evaluate_poly_with_offset(
+                    fft::concurrent::evaluate_poly_with_offset(
                         column.as_mut_slice(),
                         &twiddles,
                         BaseElement::GENERATOR,
@@ -155,7 +155,7 @@ fn evaluate_matrix(c: &mut Criterion) {
 
         let twiddles = fft::get_twiddles::<BaseElement>(size);
         group.bench_function(BenchmarkId::new("simple", size), |bench| {
-            bench.iter_with_large_drop(|| fft::serial::evaluate_poly(&mut table, &twiddles));
+            bench.iter_with_large_drop(|| fft::concurrent::evaluate_poly(&mut table, &twiddles));
         });
     }
 
@@ -172,7 +172,7 @@ fn evaluate_matrix(c: &mut Criterion) {
         let mut result_table = RowMajor::new(&mut result, row_width);
         group.bench_function(BenchmarkId::new("with_offset", size), |bench| {
             bench.iter_with_large_drop(|| {
-                fft::serial::evaluate_poly_with_offset(
+                fft::concurrent::evaluate_poly_with_offset(
                     &table,
                     &twiddles,
                     BaseElement::GENERATOR,

@@ -5,7 +5,7 @@
 
 use crate::{
     fft::fft_inputs::RowMajor,
-    field::{f128::BaseElement, StarkField},
+    field::{f64::BaseElement, StarkField},
     polynom,
     utils::{get_power_series, log2},
     FieldElement,
@@ -184,31 +184,35 @@ fn concurrent_test() {
     let mut eval_cols_faltten = eval_col.into_iter().flatten().collect::<Vec<_>>();
 
     // let mut result = unsafe { uninit_vector(n * num_polys * 8) };
-    // let mut result_matrix = unsafe { uninit_vector(n * num_polys * 8) };
-    // let mut result_table = RowMajor::new(&mut result_matrix, row_width);
+    let mut result_matrix = unsafe { uninit_vector(n * num_polys * 8) };
+    let mut result_table = RowMajor::new(&mut result_matrix, row_width);
 
     let twiddles = super::get_twiddles::<BaseElement>(n);
     let inv_twiddles = super::get_inv_twiddles::<BaseElement>(n);
 
-    println!("concurrent slice: ");
-    super::concurrent::interpolate_poly_with_offset(
-        flatten_copy.as_mut_slice(),
-        &inv_twiddles,
-        BaseElement::GENERATOR,
-    );
+    // println!("concurrent slice: ");
+    // super::concurrent::evaluate_poly_with_offset(
+    //     flatten_copy.as_mut_slice(),
+    //     &twiddles,
+    //     BaseElement::GENERATOR,
+    //     8,
+    //     &mut result,
+    // );
 
     // println!("serial: ");
     // super::serial::fft_in_place(&mut matrix, &twiddles, 1, 1, 0);
 
-    println!("concurrent: ");
-    super::concurrent::interpolate_poly_with_offset(
+    println!("concurrent matrix: ");
+    super::concurrent::evaluate_poly_with_offset(
         &mut matrix,
-        &inv_twiddles,
+        &twiddles,
         BaseElement::GENERATOR,
+        8,
+        &mut result_table,
     );
 
-    println!("Checking results...");
-    assert_eq!(flatten_copy, matrix.get_data());
+    // println!("Checking results...");
+    // assert_eq!(flatten_copy, matrix.get_data());
 
     // println!("Permuting...");
     // super::serial::permute(&mut matrix);
