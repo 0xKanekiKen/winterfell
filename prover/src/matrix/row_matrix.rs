@@ -669,11 +669,11 @@ where
 fn transpose<E: FieldElement>(matrix: Matrix<E>) -> Vec<Vec<E>> {
     let num_rows = matrix.num_rows();
     let num_cols = matrix.num_cols();
-    let mut result = vec![vec![E::ZERO; num_rows]; num_cols];
-    result.iter_mut().enumerate().for_each(|(i, row)| {
-        row.iter_mut().enumerate().for_each(|(j, col)| {
-            *col = matrix.get(j, i);
-        })
-    });
+    let mut result = vec![vec![E::ZERO; num_cols]; num_rows];
+    for row in 0..num_rows {
+        for col in 0..num_cols {
+            result[row][col] = matrix.get(col, row);
+        }
+    }
     result
 }
