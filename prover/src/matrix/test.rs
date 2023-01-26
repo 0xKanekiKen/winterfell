@@ -3,13 +3,10 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
-use crate::{
-    math::{
-        fft::{fft_inputs::FftInputs, get_inv_twiddles, get_twiddles},
-        fields::f64::BaseElement,
-        get_power_series, log2, polynom, StarkField,
-    },
-    matrix::{evaluate_poly_with_offset, evaluate_poly_with_offset_concurrent},
+use crate::math::{
+    fft::{fft_inputs::FftInputs, get_inv_twiddles, get_twiddles},
+    fields::f64::BaseElement,
+    get_power_series, log2, polynom, StarkField,
 };
 
 use super::RowMatrix;
@@ -26,8 +23,8 @@ fn test_fft_in_place_matrix() {
     let mut columns: Vec<Vec<BaseElement>> = (0..num_polys).map(|_| rand_vector(n)).collect();
     let rows = transpose(columns.clone());
     let row_width = rows[0].len();
-    let mut flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
-    let mut matrix = RowMatrix::new(&mut flatten_rows, row_width);
+    let flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
+    let mut matrix = RowMatrix::new(flatten_rows, row_width);
 
     let domain = build_domain(n);
     for p in columns.iter_mut() {
@@ -47,8 +44,8 @@ fn test_fft_in_place_matrix() {
     let mut columns: Vec<Vec<BaseElement>> = (0..num_polys).map(|_| rand_vector(n)).collect();
     let rows = transpose(columns.clone());
     let row_width = rows[0].len();
-    let mut flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
-    let mut matrix = RowMatrix::new(&mut flatten_rows, row_width);
+    let flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
+    let mut matrix = RowMatrix::new(flatten_rows, row_width);
 
     let domain = build_domain(n);
     for p in columns.iter_mut() {
@@ -68,8 +65,8 @@ fn test_fft_in_place_matrix() {
     let mut columns: Vec<Vec<BaseElement>> = (0..num_polys).map(|_| rand_vector(n)).collect();
     let rows = transpose(columns.clone());
     let row_width = rows[0].len();
-    let mut flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
-    let mut matrix = RowMatrix::new(&mut flatten_rows, row_width);
+    let flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
+    let mut matrix = RowMatrix::new(flatten_rows, row_width);
 
     let domain = build_domain(n);
     for p in columns.iter_mut() {
@@ -89,8 +86,8 @@ fn test_fft_in_place_matrix() {
     let mut columns: Vec<Vec<BaseElement>> = (0..num_polys).map(|_| rand_vector(n)).collect();
     let rows = transpose(columns.clone());
     let row_width = rows[0].len();
-    let mut flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
-    let mut matrix = RowMatrix::new(&mut flatten_rows, row_width);
+    let flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
+    let mut matrix = RowMatrix::new(flatten_rows, row_width);
 
     let domain = build_domain(n);
     for p in columns.iter_mut() {
@@ -107,14 +104,14 @@ fn test_fft_in_place_matrix() {
 
 #[test]
 fn test_eval_poly_with_offset_matrix() {
-    let n = 16;
-    let num_polys = 60;
+    let n = 128;
+    let num_polys = 64;
     let blowup_factor = 8;
     let mut columns: Vec<Vec<BaseElement>> = (0..num_polys).map(|_| rand_vector(n)).collect();
     let rows = transpose(columns.clone());
     let row_width = rows[0].len();
-    let mut flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
-    let matrix = RowMatrix::new(&mut flatten_rows, row_width);
+    let flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
+    let matrix = RowMatrix::new(flatten_rows, row_width);
 
     let offset = BaseElement::GENERATOR;
     let domain = build_domain(n * blowup_factor);
@@ -127,21 +124,22 @@ fn test_eval_poly_with_offset_matrix() {
     let eval_cols_faltten = eval_col.into_iter().flatten().collect::<Vec<_>>();
 
     let twiddles = get_twiddles::<BaseElement>(matrix.len());
-    let eval_vector = evaluate_poly_with_offset(&matrix, &twiddles, offset, blowup_factor);
-    assert_eq!(eval_cols_faltten, eval_vector);
+    let eval_vector =
+        RowMatrix::evaluate_poly_with_offset(&matrix, &twiddles, offset, blowup_factor);
+    assert_eq!(eval_cols_faltten, eval_vector.as_data());
 }
 
 #[test]
 fn test_interpolate_poly_with_offset_matrix() {
-    // degree 15
-    let n = 16;
-    let num_polys = 60;
+    // degree 127
+    let n = 128;
+    let num_polys = 64;
 
     let mut columns: Vec<Vec<BaseElement>> = (0..num_polys).map(|_| rand_vector(n)).collect();
     let rows = transpose(columns.clone());
     let row_width = rows[0].len();
-    let mut flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
-    let matrix = RowMatrix::new(&mut flatten_rows, row_width);
+    let flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
+    let matrix = RowMatrix::new(flatten_rows, row_width);
 
     let offset = BaseElement::GENERATOR;
     let domain = build_domain(n);
@@ -150,8 +148,8 @@ fn test_interpolate_poly_with_offset_matrix() {
         *p = polynom::eval_many(p, &shifted_domain);
     }
     let eval_col = transpose(columns);
-    let mut eval_cols_faltten = eval_col.into_iter().flatten().collect::<Vec<_>>();
-    let mut interpolate_matrix = RowMatrix::new(&mut eval_cols_faltten, row_width);
+    let eval_cols_faltten = eval_col.into_iter().flatten().collect::<Vec<_>>();
+    let mut interpolate_matrix = RowMatrix::new(eval_cols_faltten, row_width);
 
     let inv_twiddles = get_inv_twiddles::<BaseElement>(matrix.len());
     RowMatrix::interpolate_poly_with_offset(&mut interpolate_matrix, &inv_twiddles, offset);
@@ -160,22 +158,22 @@ fn test_interpolate_poly_with_offset_matrix() {
 
 #[test]
 fn test_interpolate_poly_matrix() {
-    let n = 1024;
-    let num_polys = 120;
+    let n = 128;
+    let num_polys = 64;
 
     let mut columns: Vec<Vec<BaseElement>> = (0..num_polys).map(|_| rand_vector(n)).collect();
     let rows = transpose(columns.clone());
     let row_width = rows[0].len();
-    let mut flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
-    let matrix = RowMatrix::new(&mut flatten_rows, row_width);
+    let flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
+    let matrix = RowMatrix::new(flatten_rows, row_width);
 
     let domain = build_domain(n);
     for p in columns.iter_mut() {
         *p = polynom::eval_many(p, &domain);
     }
     let eval_col = transpose(columns);
-    let mut eval_cols_faltten = eval_col.into_iter().flatten().collect::<Vec<_>>();
-    let mut interpolate_matrix = RowMatrix::new(&mut eval_cols_faltten, row_width);
+    let eval_cols_faltten = eval_col.into_iter().flatten().collect::<Vec<_>>();
+    let mut interpolate_matrix = RowMatrix::new(eval_cols_faltten, row_width);
 
     let inv_twiddles = get_inv_twiddles::<BaseElement>(matrix.len());
     RowMatrix::interpolate_poly(&mut interpolate_matrix, &inv_twiddles);
@@ -192,8 +190,8 @@ fn test_eval_poly_matrix_concurrent() {
     let mut columns: Vec<Vec<BaseElement>> = (0..num_polys).map(|_| rand_vector(n)).collect();
     let rows = transpose_concurrent(columns.clone());
     let row_width = rows[0].len();
-    let mut flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
-    let mut matrix = RowMatrix::new(&mut flatten_rows, row_width);
+    let flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
+    let mut matrix = RowMatrix::new(flatten_rows, row_width);
 
     let domain = build_domain(n);
     for p in columns.iter_mut() {
@@ -203,21 +201,20 @@ fn test_eval_poly_matrix_concurrent() {
     let eval_cols_faltten = eval_col.into_iter().flatten().collect::<Vec<_>>();
 
     let twiddles = get_twiddles::<BaseElement>(n);
-    FftInputs::split_radix_fft(&mut matrix, &twiddles);
-    FftInputs::permute_concurrent(&mut matrix);
+    RowMatrix::evaluate_poly_concurrent(&mut matrix, &twiddles);
     assert_eq!(eval_cols_faltten, matrix.as_data());
 }
 
 #[test]
 fn test_eval_poly_with_offset_matrix_concurrent() {
-    let n = 1024;
-    let num_polys = 32;
+    let n = 128;
+    let num_polys = 64;
     let blowup_factor = 8;
     let mut columns: Vec<Vec<BaseElement>> = (0..num_polys).map(|_| rand_vector(n)).collect();
     let rows = transpose_concurrent(columns.clone());
     let row_width = rows[0].len();
-    let mut flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
-    let matrix = RowMatrix::new(&mut flatten_rows, row_width);
+    let flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
+    let matrix = RowMatrix::new(flatten_rows, row_width);
 
     let offset = BaseElement::GENERATOR;
     let domain = build_domain(n * blowup_factor);
@@ -229,30 +226,34 @@ fn test_eval_poly_with_offset_matrix_concurrent() {
     let eval_col = transpose_concurrent(columns);
     let eval_cols_faltten = eval_col.into_iter().flatten().collect::<Vec<_>>();
 
-    let twiddles = get_twiddles::<BaseElement>(matrix.len());
-    let eval_vector =
-        evaluate_poly_with_offset_concurrent(&matrix, &twiddles, offset, blowup_factor);
-    assert_eq!(eval_cols_faltten, eval_vector);
+    let twiddles = get_twiddles::<BaseElement>(n);
+    let eval_vector = RowMatrix::evaluate_poly_with_offset_concurrent(
+        &matrix,
+        &twiddles,
+        BaseElement::GENERATOR,
+        blowup_factor,
+    );
+    assert_eq!(eval_cols_faltten, eval_vector.as_data());
 }
 
 #[test]
 fn test_interpolate_poly_matrix_concurrent() {
-    let n = 256;
-    let num_polys = 1;
+    let n = 1024;
+    let num_polys = 64;
 
     let mut columns: Vec<Vec<BaseElement>> = (0..num_polys).map(|_| rand_vector(n)).collect();
     let rows = transpose_concurrent(columns.clone());
     let row_width = rows[0].len();
-    let mut flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
-    let matrix = RowMatrix::new(&mut flatten_rows, row_width);
+    let flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
+    let matrix = RowMatrix::new(flatten_rows, row_width);
 
     let domain = build_domain(n);
     for p in columns.iter_mut() {
         *p = polynom::eval_many(p, &domain);
     }
     let eval_col = transpose_concurrent(columns);
-    let mut eval_cols_faltten = eval_col.into_iter().flatten().collect::<Vec<_>>();
-    let mut interpolate_matrix = RowMatrix::new(&mut eval_cols_faltten, row_width);
+    let eval_cols_faltten = eval_col.into_iter().flatten().collect::<Vec<_>>();
+    let mut interpolate_matrix = RowMatrix::new(eval_cols_faltten, row_width);
 
     let inv_twiddles = get_inv_twiddles::<BaseElement>(matrix.len());
     RowMatrix::interpolate_poly_concurrent(&mut interpolate_matrix, &inv_twiddles);
@@ -263,13 +264,13 @@ fn test_interpolate_poly_matrix_concurrent() {
 fn test_interpolate_poly_with_offset_matrix_concurrent() {
     // degree 15
     let n = 1024;
-    let num_polys = 16;
+    let num_polys = 64;
 
     let mut columns: Vec<Vec<BaseElement>> = (0..num_polys).map(|_| rand_vector(n)).collect();
     let rows = transpose_concurrent(columns.clone());
     let row_width = rows[0].len();
-    let mut flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
-    let matrix = RowMatrix::new(&mut flatten_rows, row_width);
+    let flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
+    let matrix = RowMatrix::new(flatten_rows, row_width);
 
     let offset = BaseElement::GENERATOR;
     let domain = build_domain(n);
@@ -278,8 +279,8 @@ fn test_interpolate_poly_with_offset_matrix_concurrent() {
         *p = polynom::eval_many(p, &shifted_domain);
     }
     let eval_col = transpose_concurrent(columns);
-    let mut eval_cols_faltten = eval_col.into_iter().flatten().collect::<Vec<_>>();
-    let mut interpolate_matrix = RowMatrix::new(&mut eval_cols_faltten, row_width);
+    let eval_cols_faltten = eval_col.into_iter().flatten().collect::<Vec<_>>();
+    let mut interpolate_matrix = RowMatrix::new(eval_cols_faltten, row_width);
 
     let inv_twiddles = get_inv_twiddles::<BaseElement>(matrix.len());
     RowMatrix::interpolate_poly_with_offset_concurrent(
@@ -300,7 +301,6 @@ fn build_domain(size: usize) -> Vec<BaseElement> {
 }
 
 /// Transposes a matrix stored in a column major format to a row major format.
-/// fn transpose<E: FieldElement>(v: Vec<Vec<E>>) -> Vec<Vec<E>> {
 fn transpose<E: FieldElement>(matrix: Vec<Vec<E>>) -> Vec<Vec<E>> {
     let num_rows = matrix.len();
     let num_cols = matrix[0].len();

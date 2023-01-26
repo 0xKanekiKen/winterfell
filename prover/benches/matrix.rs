@@ -14,9 +14,7 @@ use math::{
     StarkField,
 };
 
-use winter_prover::{
-    evaluate_poly_with_offset, evaluate_poly_with_offset_concurrent, Matrix, RowMatrix,
-};
+use winter_prover::{Matrix, RowMatrix};
 
 const SIZE: usize = 524_288;
 const NUM_POLYS: [usize; 4] = [16, 32, 72, 96];
@@ -27,7 +25,7 @@ fn interpolate_columns(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for &num_poly in NUM_POLYS.iter() {
-        let mut columns: Vec<Vec<BaseElement>> = (0..num_poly).map(|_| rand_vector(SIZE)).collect();
+        let columns: Vec<Vec<BaseElement>> = (0..num_poly).map(|_| rand_vector(SIZE)).collect();
         let mut column_matrix = Matrix::new(columns);
         let inv_twiddles = fft::get_inv_twiddles::<BaseElement>(SIZE);
         group.bench_function(BenchmarkId::new("simple", num_poly), |bench| {
@@ -66,7 +64,7 @@ fn evaluate_columns(c: &mut Criterion) {
     let blowup_factor = 8;
 
     for &num_poly in NUM_POLYS.iter() {
-        let mut columns: Vec<Vec<BaseElement>> = (0..num_poly).map(|_| rand_vector(SIZE)).collect();
+        let columns: Vec<Vec<BaseElement>> = (0..num_poly).map(|_| rand_vector(SIZE)).collect();
         let mut column_matrix = Matrix::new(columns);
         let twiddles = fft::get_twiddles::<BaseElement>(SIZE);
         group.bench_function(BenchmarkId::new("simple", num_poly), |bench| {
@@ -79,7 +77,7 @@ fn evaluate_columns(c: &mut Criterion) {
     }
 
     for &num_poly in NUM_POLYS.iter() {
-        let mut columns: Vec<Vec<BaseElement>> = (0..num_poly).map(|_| rand_vector(SIZE)).collect();
+        let columns: Vec<Vec<BaseElement>> = (0..num_poly).map(|_| rand_vector(SIZE)).collect();
         let mut column_matrix = Matrix::new(columns);
         let twiddles = fft::get_twiddles::<BaseElement>(SIZE);
         group.bench_function(BenchmarkId::new("with_offset", num_poly), |bench| {
@@ -107,8 +105,8 @@ fn interpolate_matrix(c: &mut Criterion) {
         let rows: Vec<Vec<BaseElement>> = (0..SIZE).map(|_| rand_vector(num_poly)).collect();
 
         let row_width = rows[0].len();
-        let mut flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
-        let mut table = RowMatrix::new(&mut flatten_table, row_width);
+        let flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
+        let mut table = RowMatrix::new(flatten_table, row_width);
 
         let inv_twiddles = fft::get_inv_twiddles::<BaseElement>(SIZE);
         group.bench_function(BenchmarkId::new("simple", num_poly), |bench| {
@@ -122,8 +120,8 @@ fn interpolate_matrix(c: &mut Criterion) {
         let rows: Vec<Vec<BaseElement>> = (0..SIZE).map(|_| rand_vector(num_poly)).collect();
 
         let row_width = rows[0].len();
-        let mut flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
-        let mut table = RowMatrix::new(&mut flatten_table, row_width);
+        let flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
+        let mut table = RowMatrix::new(flatten_table, row_width);
 
         let inv_twiddles = fft::get_inv_twiddles::<BaseElement>(SIZE);
         group.bench_function(BenchmarkId::new("with_offset", num_poly), |bench| {
@@ -150,8 +148,8 @@ fn evaluate_matrix(c: &mut Criterion) {
         let rows: Vec<Vec<BaseElement>> = (0..SIZE).map(|_| rand_vector(num_poly)).collect();
 
         let row_width = rows[0].len();
-        let mut flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
-        let mut table = RowMatrix::new(&mut flatten_table, row_width);
+        let flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
+        let mut table = RowMatrix::new(flatten_table, row_width);
 
         let twiddles = fft::get_twiddles::<BaseElement>(SIZE);
         group.bench_function(BenchmarkId::new("simple", num_poly), |bench| {
@@ -165,13 +163,13 @@ fn evaluate_matrix(c: &mut Criterion) {
         let rows: Vec<Vec<BaseElement>> = (0..SIZE).map(|_| rand_vector(num_poly)).collect();
 
         let row_width = rows[0].len();
-        let mut flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
-        let table = RowMatrix::new(&mut flatten_table, row_width);
+        let flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
+        let table = RowMatrix::new(flatten_table, row_width);
 
         let twiddles = fft::get_twiddles::<BaseElement>(SIZE);
         group.bench_function(BenchmarkId::new("with_offset", num_poly), |bench| {
             bench.iter_with_large_drop(|| {
-                evaluate_poly_with_offset_concurrent(
+                RowMatrix::evaluate_poly_with_offset_concurrent(
                     &table,
                     &twiddles,
                     BaseElement::GENERATOR,
