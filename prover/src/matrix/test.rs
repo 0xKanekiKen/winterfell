@@ -201,8 +201,8 @@ fn test_eval_poly_matrix_concurrent() {
     let eval_cols_faltten = eval_col.into_iter().flatten().collect::<Vec<_>>();
 
     let twiddles = get_twiddles::<BaseElement>(n);
-    RowMatrix::evaluate_poly(&mut matrix, &twiddles);
-    // assert_eq!(eval_cols_faltten, matrix.get_data());
+    RowMatrix::evaluate_poly_concurrent(&mut matrix, &twiddles);
+    assert_eq!(eval_cols_faltten, matrix.get_data());
 }
 
 #[test]
