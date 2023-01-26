@@ -185,10 +185,10 @@ fn evaluate_matrix(c: &mut Criterion) {
 
 criterion_group!(
     matrix_group,
-    interpolate_columns,
-    interpolate_matrix,
+    evaluate_matrix,
     evaluate_columns,
-    evaluate_matrix
+    interpolate_matrix,
+    interpolate_columns,
 );
 criterion_main!(matrix_group);
 

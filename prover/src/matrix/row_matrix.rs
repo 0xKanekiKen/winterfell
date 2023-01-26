@@ -585,7 +585,7 @@ where
                 data: chunk,
                 row_width: p.row_width,
             };
-            matrix_chunk.fft_in_place(twiddles);
+            matrix_chunk.split_radix_fft(twiddles);
         });
 
     let mut matrix_result = RowMatrix {
@@ -593,7 +593,7 @@ where
         row_width: p.row_width,
     };
 
-    FftInputs::permute(&mut matrix_result);
+    FftInputs::permute_concurrent(&mut matrix_result);
     result
 }
 
@@ -640,10 +640,17 @@ where
     }
 
     fn swap(&mut self, i: usize, j: usize) {
-        for col_idx in 0..self.row_width {
-            self.data
-                .swap(self.row_width * i + col_idx, self.row_width * j + col_idx);
-        }
+        let i = i * self.row_width;
+        let j = j * self.row_width;
+
+        let (first_row, second_row) = self.data.split_at_mut(j);
+        let (first_row, second_row) = (
+            &mut first_row[i..i + self.row_width],
+            &mut second_row[0..self.row_width],
+        );
+
+        // Swap the two rows.
+        first_row.swap_with_slice(second_row);
     }
 
     fn shift_by_series(&mut self, offset: E::BaseField, increment: E::BaseField, num_skip: usize) {
