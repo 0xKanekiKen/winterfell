@@ -110,6 +110,12 @@ where
     /// Evaluates polynomial `p` in-place over the domain of length `p.len()` in the field specified
     /// by `B` using the FFT algorithm.
     pub fn evaluate_poly(p: &mut RowMatrix<E>, twiddles: &[E::BaseField]) {
+        let time = Instant::now();
+
+        println!(
+            "Evaluating polynomial in-place...: {:?}",
+            time.elapsed().as_micros()
+        );
         for i in 0..p.num_cols() / ARR_SIZE {
             let mut row_matrix_segment_i = RowMatrixSegment::new(
                 p.data.as_mut_slice(),
@@ -119,6 +125,10 @@ where
             );
             row_matrix_segment_i.fft_in_place(twiddles);
         }
+        println!("evaluated segment...: {:?}", time.elapsed().as_micros());
+
+        p.fft_in_place(twiddles);
+        println!("evaluated matrix...: {:?}", time.elapsed().as_micros());
         p.permute();
     }
 
@@ -544,45 +554,45 @@ where
         let i = offset * self.row_width + self.init_col;
         let j = (offset + stride) * self.row_width + self.init_col;
 
+        let temp: [E; 8] = self.data[i..i + 8].try_into().unwrap();
+
+        let (first_row, second_row) = self.data.split_at_mut(j);
+        let (first_row, second_row) = (
+            &mut first_row[i..i + ARR_SIZE],
+            &mut second_row[0..ARR_SIZE],
+        );
+
         //  apply on 1st element of the array.
-        let temp = self.data[i];
-        self.data[i] = temp + self.data[j];
-        self.data[j] = temp - self.data[j];
+        first_row[0] = temp[0] + second_row[0];
+        second_row[0] = temp[0] - second_row[0];
 
         //  apply on 2nd element of the array.
-        let temp = self.data[i + 1];
-        self.data[i + 1] = temp + self.data[j + 1];
-        self.data[j + 1] = temp - self.data[j + 1];
+        first_row[1] = temp[1] + second_row[1];
+        second_row[1] = temp[1] - second_row[1];
 
         //  apply on 3rd element of the array.
-        let temp = self.data[i + 2];
-        self.data[i + 2] = temp + self.data[j + 2];
-        self.data[j + 2] = temp - self.data[j + 2];
+        first_row[2] = temp[2] + second_row[2];
+        second_row[2] = temp[2] - second_row[2];
 
         //  apply on 4th element of the array.
-        let temp = self.data[i + 3];
-        self.data[i + 3] = temp + self.data[j + 3];
-        self.data[j + 3] = temp - self.data[j + 3];
+        first_row[3] = temp[3] + second_row[3];
+        second_row[3] = temp[3] - second_row[3];
 
         //  apply on 5th element of the array.
-        let temp = self.data[i + 4];
-        self.data[i + 4] = temp + self.data[j + 4];
-        self.data[j + 4] = temp - self.data[j + 4];
+        first_row[4] = temp[4] + second_row[4];
+        second_row[4] = temp[4] - second_row[4];
 
         //  apply on 6th element of the array.
-        let temp = self.data[i + 5];
-        self.data[i + 5] = temp + self.data[j + 5];
-        self.data[j + 5] = temp - self.data[j + 5];
+        first_row[5] = temp[5] + second_row[5];
+        second_row[5] = temp[5] - second_row[5];
 
         //  apply on 7th element of the array.
-        let temp = self.data[i + 6];
-        self.data[i + 6] = temp + self.data[j + 6];
-        self.data[j + 6] = temp - self.data[j + 6];
+        first_row[6] = temp[6] + second_row[6];
+        second_row[6] = temp[6] - second_row[6];
 
         //  apply on 8th element of the array.
-        let temp = self.data[i + 7];
-        self.data[i + 7] = temp + self.data[j + 7];
-        self.data[j + 7] = temp - self.data[j + 7];
+        first_row[7] = temp[7] + second_row[7];
+        second_row[7] = temp[7] - second_row[7];
     }
 
     #[inline(always)]
@@ -590,53 +600,54 @@ where
         let i = offset * self.row_width + self.init_col;
         let j = (offset + stride) * self.row_width + self.init_col;
 
+        let twiddle = E::from(twiddle);
+        let temp: [E; 8] = self.data[i..i + 8].try_into().unwrap();
+
+        let (first_row, second_row) = self.data.split_at_mut(j);
+        let (first_row, second_row) = (
+            &mut first_row[i..i + ARR_SIZE],
+            &mut second_row[0..ARR_SIZE],
+        );
+
         //  apply on 1st element of the array.
-        let temp = self.data[i];
-        self.data[j] = self.data[j].mul_base(twiddle);
-        self.data[i] = temp + self.data[j];
-        self.data[j] = temp - self.data[j];
+        second_row[0] *= twiddle;
+        first_row[0] = temp[0] + second_row[0];
+        second_row[0] = temp[0] - second_row[0];
 
         //  apply on 2nd element of the array.
-        let temp = self.data[i + 1];
-        self.data[j + 1] = self.data[j + 1].mul_base(twiddle);
-        self.data[i + 1] = temp + self.data[j + 1];
-        self.data[j + 1] = temp - self.data[j + 1];
+        second_row[1] *= twiddle;
+        first_row[1] = temp[1] + second_row[1];
+        second_row[1] = temp[1] - second_row[1];
 
         //  apply on 3rd element of the array.
-        let temp = self.data[i + 2];
-        self.data[j + 2] = self.data[j + 2].mul_base(twiddle);
-        self.data[i + 2] = temp + self.data[j + 2];
-        self.data[j + 2] = temp - self.data[j + 2];
+        second_row[2] *= twiddle;
+        first_row[2] = temp[2] + second_row[2];
+        second_row[2] = temp[2] - second_row[2];
 
         //  apply on 4th element of the array.
-        let temp = self.data[i + 3];
-        self.data[j + 3] = self.data[j + 3].mul_base(twiddle);
-        self.data[i + 3] = temp + self.data[j + 3];
-        self.data[j + 3] = temp - self.data[j + 3];
+        second_row[3] *= twiddle;
+        first_row[3] = temp[3] + second_row[3];
+        second_row[3] = temp[3] - second_row[3];
 
         //  apply on 5th element of the array.
-        let temp = self.data[i + 4];
-        self.data[j + 4] = self.data[j + 4].mul_base(twiddle);
-        self.data[i + 4] = temp + self.data[j + 4];
-        self.data[j + 4] = temp - self.data[j + 4];
+        second_row[4] *= twiddle;
+        first_row[4] = temp[4] + second_row[4];
+        second_row[4] = temp[4] - second_row[4];
 
         //  apply on 6th element of the array.
-        let temp = self.data[i + 5];
-        self.data[j + 5] = self.data[j + 5].mul_base(twiddle);
-        self.data[i + 5] = temp + self.data[j + 5];
-        self.data[j + 5] = temp - self.data[j + 5];
+        second_row[5] *= twiddle;
+        first_row[5] = temp[5] + second_row[5];
+        second_row[5] = temp[5] - second_row[5];
 
         //  apply on 7th element of the array.
-        let temp = self.data[i + 6];
-        self.data[j + 6] = self.data[j + 6].mul_base(twiddle);
-        self.data[i + 6] = temp + self.data[j + 6];
-        self.data[j + 6] = temp - self.data[j + 6];
+        second_row[6] *= twiddle;
+        first_row[6] = temp[6] + second_row[6];
+        second_row[6] = temp[6] - second_row[6];
 
         //  apply on 8th element of the array.
-        let temp = self.data[i + 7];
-        self.data[j + 7] = self.data[j + 7].mul_base(twiddle);
-        self.data[i + 7] = temp + self.data[j + 7];
-        self.data[j + 7] = temp - self.data[j + 7];
+        second_row[7] *= twiddle;
+        first_row[7] = temp[7] + second_row[7];
+        second_row[7] = temp[7] - second_row[7];
     }
 
     fn swap(&mut self, i: usize, j: usize) {
