@@ -9,7 +9,7 @@ use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator};
 use std::time::Duration;
 
 use math::{
-    fft::{self, fft_inputs::FftInputs},
+    fft::{self},
     fields::f64::BaseElement,
     StarkField,
 };
@@ -27,7 +27,7 @@ fn interpolate_columns(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for &num_poly in NUM_POLYS.iter() {
-        let mut columns: Vec<Vec<BaseElement>> = (0..num_poly).map(|_| rand_vector(SIZE)).collect();
+        let columns: Vec<Vec<BaseElement>> = (0..num_poly).map(|_| rand_vector(SIZE)).collect();
         let mut column_matrix = Matrix::new(columns);
         let inv_twiddles = fft::get_inv_twiddles::<BaseElement>(SIZE);
         group.bench_function(BenchmarkId::new("simple", num_poly), |bench| {
@@ -66,7 +66,7 @@ fn evaluate_columns(c: &mut Criterion) {
     let blowup_factor = 8;
 
     for &num_poly in NUM_POLYS.iter() {
-        let mut columns: Vec<Vec<BaseElement>> = (0..num_poly).map(|_| rand_vector(SIZE)).collect();
+        let columns: Vec<Vec<BaseElement>> = (0..num_poly).map(|_| rand_vector(SIZE)).collect();
         let mut column_matrix = Matrix::new(columns);
         let twiddles = fft::get_twiddles::<BaseElement>(SIZE);
         group.bench_function(BenchmarkId::new("simple", num_poly), |bench| {
@@ -79,7 +79,7 @@ fn evaluate_columns(c: &mut Criterion) {
     }
 
     for &num_poly in NUM_POLYS.iter() {
-        let mut columns: Vec<Vec<BaseElement>> = (0..num_poly).map(|_| rand_vector(SIZE)).collect();
+        let columns: Vec<Vec<BaseElement>> = (0..num_poly).map(|_| rand_vector(SIZE)).collect();
         let mut column_matrix = Matrix::new(columns);
         let twiddles = fft::get_twiddles::<BaseElement>(SIZE);
         group.bench_function(BenchmarkId::new("with_offset", num_poly), |bench| {
@@ -107,7 +107,7 @@ fn interpolate_matrix(c: &mut Criterion) {
         let rows: Vec<Vec<BaseElement>> = (0..SIZE).map(|_| rand_vector(num_poly)).collect();
 
         let row_width = rows[0].len();
-        let mut flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
+        let flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
         let vec = flatten_table
             .chunks(ARR_SIZE)
             .map(|x| x.try_into().unwrap())
@@ -124,7 +124,7 @@ fn interpolate_matrix(c: &mut Criterion) {
         let rows: Vec<Vec<BaseElement>> = (0..SIZE).map(|_| rand_vector(num_poly)).collect();
 
         let row_width = rows[0].len();
-        let mut flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
+        let flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
         let vec = flatten_table
             .chunks(ARR_SIZE)
             .map(|x| x.try_into().unwrap())
@@ -156,7 +156,7 @@ fn evaluate_matrix(c: &mut Criterion) {
         let rows: Vec<Vec<BaseElement>> = (0..SIZE).map(|_| rand_vector(num_poly)).collect();
 
         let row_width = rows[0].len();
-        let mut flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
+        let flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
         let vec = flatten_table
             .chunks(ARR_SIZE)
             .map(|x| x.try_into().unwrap())
@@ -173,12 +173,12 @@ fn evaluate_matrix(c: &mut Criterion) {
         let rows: Vec<Vec<BaseElement>> = (0..SIZE).map(|_| rand_vector(num_poly)).collect();
 
         let row_width = rows[0].len();
-        let mut flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
+        let flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
         let vec = flatten_table
             .chunks(ARR_SIZE)
             .map(|x| x.try_into().unwrap())
             .collect::<Vec<_>>();
-        let mut table = RowMatrix::new(vec, row_width);
+        let table = RowMatrix::new(vec, row_width);
 
         let twiddles = fft::get_twiddles::<BaseElement>(SIZE);
         group.bench_function(BenchmarkId::new("with_offset", num_poly), |bench| {

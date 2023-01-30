@@ -3,14 +3,13 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
-use core::{cmp, ptr};
-use std::time::Instant;
+use core::cmp;
 
 use super::{ColumnIter, ColumnIterMut, StarkDomain};
 use crypto::{ElementHasher, MerkleTree};
 use math::{
     fft::{self, fft_inputs::FftInputs, permute_index, MIN_CONCURRENT_SIZE},
-    log2, polynom, ExtensionOf, FieldElement, StarkField,
+    log2, polynom, FieldElement, StarkField,
 };
 use utils::{collections::Vec, uninit_vector};
 
@@ -33,6 +32,7 @@ pub const ARR_SIZE: usize = 8;
 // RowMatrix MATRIX
 // ================================================================================================
 
+#[derive(Debug, Clone)]
 pub struct RowMatrix<E>
 where
     E: FieldElement,
@@ -41,7 +41,7 @@ where
     row_width: usize,
 }
 
-impl<'a, E> RowMatrix<E>
+impl<E> RowMatrix<E>
 where
     E: FieldElement,
 {
@@ -55,7 +55,7 @@ where
     /// * The remainder of the length of the data and the row width is not zero.
     /// * Number of rows is smaller than or equal to 1.
     /// * Number of rows is not a power of two.
-    pub fn new(data: Vec<[E; 8]>, row_width: usize) -> Self {
+    pub fn new(data: Vec<[E; ARR_SIZE]>, row_width: usize) -> Self {
         // assert!(
         //     !data.is_empty(),
         //     "a matrix must contain at least one column"
@@ -95,12 +95,12 @@ where
     }
 
     /// Returns the data in this matrix as a mutable slice of arrays.
-    pub fn as_data_mut(&mut self) -> &mut [[E; 8]] {
+    pub fn as_data_mut(&mut self) -> &mut [[E; ARR_SIZE]] {
         &mut self.data
     }
 
     /// Returns the data in this matrix as a slice of arrays.
-    pub fn as_data(&self) -> &[[E; 8]] {
+    pub fn as_data(&self) -> &[[E; ARR_SIZE]] {
         &self.data
     }
 
@@ -136,7 +136,6 @@ where
     /// # Panics
     /// Panics if `row_idx` is out of bounds for this matrix.
     pub fn read_row_into(&self, row_idx: usize, row: &mut [E]) {
-        let row_start = row_idx * self.row_width;
         row.iter_mut().enumerate().for_each(|(i, x)| {
             *x = self.data[row_idx * self.row_width / self.arr_size() + i / self.arr_size()]
                 [i % self.arr_size()]
@@ -184,7 +183,7 @@ where
     // ================================================================================================
 
     /// Returns the underlying slice of data.
-    pub fn get_data(&self) -> &Vec<[E; 8]> {
+    pub fn get_data(&self) -> &Vec<[E; ARR_SIZE]> {
         &self.data
     }
 
@@ -275,7 +274,7 @@ where
     ///   [StarkDomain] using FFT algorithm. The domain specification includes the size of the
     ///   subgroup as well as the domain offset (to define a coset).
     /// * The resulting evaluations are returned in a new Matrix.
-    pub fn evaluate_columns_over(&self, domain: &StarkDomain<E::BaseField>) -> Vec<[E; 8]> {
+    pub fn evaluate_columns_over(&self, domain: &StarkDomain<E::BaseField>) -> RowMatrix<E> {
         let blowup_factor = domain.trace_to_lde_blowup();
         let domain_offset = domain.offset();
         let twiddles = domain.trace_twiddles();
@@ -306,7 +305,7 @@ where
             "domain offset cannot be zero"
         );
 
-        let mut result = Vec::new();
+        let mut result = RowMatrix::new(Vec::new(), self.row_width);
 
         // when `concurrent` feature is enabled, run the concurrent version of the function; unless
         // the polynomial is small, then don't bother with the concurrent version
@@ -380,8 +379,12 @@ where
     /// Evaluates polynomial `p` in-place over the domain of length `p.len()` in the field specified
     /// by `B` using the FFT algorithm.
     pub fn evaluate_poly(p: &mut RowMatrix<E>, twiddles: &[E::BaseField]) {
-        FftInputs::fft_in_place(p, twiddles);
-        FftInputs::permute(p);
+        for i in 0..p.num_cols() / ARR_SIZE {
+            let mut row_matrix_segment_i =
+                RowMatrixSegment::new(p.data.as_mut_slice(), p.row_width, i);
+            row_matrix_segment_i.fft_in_place(twiddles);
+        }
+        p.permute();
     }
 
     // POLYNOMIAL INTERPOLATION
@@ -390,12 +393,14 @@ where
     /// Interpolates `evaluations` over a domain of length `evaluations.len()` in the field specified
     /// `B` into a polynomial in coefficient form using the FFT algorithm.
     pub fn interpolate_poly(evaluations: &mut RowMatrix<E>, inv_twiddles: &[E::BaseField]) {
-        FftInputs::fft_in_place(evaluations, inv_twiddles);
         let inv_length = E::BaseField::inv((evaluations.len() as u64).into());
-
-        // Use fftinputs shift_by on evaluations.
-        FftInputs::shift_by(evaluations, inv_length);
-        FftInputs::permute(evaluations);
+        for i in 0..evaluations.num_cols() / ARR_SIZE {
+            let mut row_matrix_segment_i =
+                RowMatrixSegment::new(evaluations.data.as_mut_slice(), evaluations.row_width, i);
+            row_matrix_segment_i.fft_in_place(inv_twiddles);
+        }
+        evaluations.shift_by(inv_length);
+        evaluations.permute();
     }
 
     /// Interpolates `evaluations` over a domain of length `evaluations.len()` and shifted by
@@ -406,14 +411,18 @@ where
         inv_twiddles: &[E::BaseField],
         domain_offset: E::BaseField,
     ) {
-        FftInputs::fft_in_place(evaluations, inv_twiddles);
-        FftInputs::permute(evaluations);
-
         let domain_offset = E::BaseField::inv(domain_offset);
         let offset = E::BaseField::inv((evaluations.len() as u64).into());
 
+        for i in 0..evaluations.num_cols() / ARR_SIZE {
+            let mut row_matrix_segment_i =
+                RowMatrixSegment::new(evaluations.data.as_mut_slice(), evaluations.row_width, i);
+            row_matrix_segment_i.fft_in_place(inv_twiddles);
+        }
+        evaluations.permute();
+
         // Use fftinputs's shift_by_series on evaluations.
-        FftInputs::shift_by_series(evaluations, offset, domain_offset, 0);
+        evaluations.shift_by_series(offset, domain_offset, 0);
     }
 
     // CONCURRENT EVALUATION
@@ -425,8 +434,12 @@ where
     ///
     /// This function is only available when the `concurrent` feature is enabled.
     pub fn evaluate_poly_concurrent(p: &mut RowMatrix<E>, twiddles: &[E::BaseField]) {
-        p.split_radix_fft(twiddles);
-        p.permute_concurrent()
+        for i in 0..p.row_width / ARR_SIZE {
+            let mut row_matrix_segment_i =
+                RowMatrixSegment::new(p.data.as_mut_slice(), p.row_width, i);
+            row_matrix_segment_i.split_radix_fft(twiddles);
+        }
+        p.permute_concurrent();
     }
 
     // CONCURRENT INTERPOLATION
@@ -441,14 +454,23 @@ where
         evaluations: &mut RowMatrix<E>,
         inv_twiddles: &[E::BaseField],
     ) {
-        evaluations.split_radix_fft(inv_twiddles);
         let inv_length = E::BaseField::inv((evaluations.len() as u64).into());
-        let row_width = evaluations.num_cols();
-        let batch_size = evaluations.len() / rayon::current_num_threads().next_power_of_two();
+        let batch_size = evaluations.len()
+            / rayon::current_num_threads()
+                .next_power_of_two()
+                .min(evaluations.len());
 
-        rayon::iter::IndexedParallelIterator::enumerate(evaluations.par_mut_chunks(batch_size))
+        for i in 0..evaluations.num_cols() / ARR_SIZE {
+            let mut row_matrix_segment_i =
+                RowMatrixSegment::new(evaluations.data.as_mut_slice(), evaluations.row_width, i);
+            row_matrix_segment_i.split_radix_fft(inv_twiddles);
+
+            rayon::iter::IndexedParallelIterator::enumerate(
+                row_matrix_segment_i.par_mut_chunks(batch_size),
+            )
             .for_each(|(_i, mut batch)| batch.shift_by(inv_length));
-        evaluations.permute_concurrent();
+            row_matrix_segment_i.permute_concurrent();
+        }
     }
 
     // #[cfg(feature = "concurrent")]
@@ -462,9 +484,6 @@ where
         inv_twiddles: &[E::BaseField],
         domain_offset: E::BaseField,
     ) {
-        evaluations.split_radix_fft(inv_twiddles);
-        evaluations.permute_concurrent();
-
         let domain_offset = E::BaseField::inv(domain_offset);
         let inv_length = E::BaseField::inv((evaluations.len() as u64).into());
 
@@ -473,11 +492,19 @@ where
                 .next_power_of_two()
                 .min(evaluations.len());
 
-        rayon::iter::IndexedParallelIterator::enumerate(evaluations.par_mut_chunks(batch_size))
+        for i in 0..evaluations.num_cols() / ARR_SIZE {
+            let mut row_matrix_segment_i =
+                RowMatrixSegment::new(evaluations.data.as_mut_slice(), evaluations.row_width, i);
+            row_matrix_segment_i.split_radix_fft(inv_twiddles);
+            row_matrix_segment_i.permute_concurrent();
+            rayon::iter::IndexedParallelIterator::enumerate(
+                row_matrix_segment_i.par_mut_chunks(batch_size),
+            )
             .for_each(|(i, mut batch)| {
                 let offset = domain_offset.exp(((i * batch_size) as u64).into()) * inv_length;
                 batch.shift_by_series(offset, domain_offset, 0);
             });
+        }
     }
 
     // fn par_column_iter_mut(&'a mut self) -> impl ParallelIterator<Item = &'a mut E> {
@@ -498,7 +525,7 @@ pub fn evaluate_poly_with_offset<E>(
     twiddles: &[E::BaseField],
     domain_offset: E::BaseField,
     blowup_factor: usize,
-) -> Vec<[E; 8]>
+) -> RowMatrix<E>
 where
     E: FieldElement,
 {
@@ -506,45 +533,48 @@ where
     let g = E::BaseField::get_root_of_unity(log2(domain_size));
 
     let mut result_vec_of_arrays =
-        unsafe { uninit_vector::<[E; 8]>(domain_size * p.row_width / ARR_SIZE) };
+        unsafe { uninit_vector::<[E; ARR_SIZE]>(domain_size * p.row_width / ARR_SIZE) };
 
     result_vec_of_arrays
         .chunks_mut(p.len() * p.row_width / ARR_SIZE)
         .enumerate()
         .for_each(|(i, chunk)| {
             let idx = fft::permute_index(blowup_factor, i) as u64;
-            let offset = E::from(g.exp(idx.into()) * domain_offset);
-            let mut factor = E::ONE;
+            let offset = g.exp(idx.into()) * domain_offset;
 
             let chunk_len = chunk.len() * ARR_SIZE / p.row_width;
-            let arr_in_row = p.row_width / ARR_SIZE;
+            let seg_in_row = p.row_width / ARR_SIZE;
+            for d in 0..seg_in_row {
+                let mut factor = E::BaseField::ONE;
+                for row in 0..chunk_len {
+                    let row_idx = (row * p.row_width / ARR_SIZE) + d;
+                    chunk[row_idx][0] = p.data[row_idx][0].mul_base(factor);
+                    chunk[row_idx][1] = p.data[row_idx][1].mul_base(factor);
+                    chunk[row_idx][2] = p.data[row_idx][2].mul_base(factor);
+                    chunk[row_idx][3] = p.data[row_idx][3].mul_base(factor);
+                    // chunk[row_idx][4] = p.data[row_idx][4].mul_base(factor);
+                    // chunk[row_idx][5] = p.data[row_idx][5].mul_base(factor);
+                    // chunk[row_idx][6] = p.data[row_idx][6].mul_base(factor);
+                    // chunk[row_idx][7] = p.data[row_idx][7].mul_base(factor);
 
-            for d in 0..chunk_len {
-                let row_start = d * arr_in_row;
-                for idx in 0..arr_in_row {
-                    chunk[row_start + idx]
-                        .iter_mut()
-                        .zip(p.data[row_start + idx].iter())
-                        .for_each(|(dest, src)| {
-                            *dest = *src * factor;
-                        });
+                    factor *= offset;
                 }
-                factor *= offset;
+                let mut matrix_chunk = RowMatrixSegment {
+                    data: chunk,
+                    row_width: p.row_width,
+                    init_col: d,
+                };
+                FftInputs::fft_in_place(&mut matrix_chunk, twiddles);
             }
-            let mut matrix_chunk = RowMatrixRef {
-                data: chunk,
-                row_width: p.row_width,
-            };
-            FftInputs::fft_in_place(&mut matrix_chunk, twiddles);
         });
 
-    let mut matrix_result = RowMatrixRef {
-        data: result_vec_of_arrays.as_mut_slice(),
+    let mut matrix_result = RowMatrix {
+        data: result_vec_of_arrays,
         row_width: p.row_width,
     };
 
     FftInputs::permute(&mut matrix_result);
-    result_vec_of_arrays
+    matrix_result
 }
 
 // #[cfg(feature = "concurrent")]
@@ -557,7 +587,7 @@ pub fn evaluate_poly_with_offset_concurrent<E>(
     twiddles: &[E::BaseField],
     domain_offset: E::BaseField,
     blowup_factor: usize,
-) -> Vec<[E; 8]>
+) -> RowMatrix<E>
 where
     E: FieldElement,
 {
@@ -565,60 +595,57 @@ where
     let g = E::BaseField::get_root_of_unity(log2(domain_size));
 
     let mut result_vec_of_arrays =
-        unsafe { uninit_vector::<[E; 8]>(domain_size * p.row_width / ARR_SIZE) };
+        unsafe { uninit_vector::<[E; ARR_SIZE]>(domain_size * p.row_width / ARR_SIZE) };
 
     let batch_size = p.len()
         / rayon::current_num_threads()
             .next_power_of_two()
             .min(p.len());
 
-    let p_data = p.get_data();
-
     result_vec_of_arrays
         .par_chunks_mut(p.len() * p.row_width / ARR_SIZE)
         .enumerate()
         .for_each(|(i, chunk)| {
             let idx = permute_index(blowup_factor, i) as u64;
-            let offset = E::from(g.exp(idx.into()) * domain_offset);
+            let offset = g.exp(idx.into()) * domain_offset;
 
-            p_data
-                .par_chunks(batch_size * p.row_width)
-                .zip(chunk.par_chunks_mut(batch_size * p.row_width))
+            p.data
+                .par_chunks(batch_size * p.row_width / ARR_SIZE)
+                .zip(chunk.par_chunks_mut(batch_size * p.row_width / ARR_SIZE))
                 .enumerate()
                 .for_each(|(i, (src, dest))| {
-                    let mut factor = offset.exp(((i * batch_size) as u64).into());
+                    let dest_len = dest.len() * ARR_SIZE / p.row_width;
+                    let seg_in_row = p.row_width / ARR_SIZE;
+                    for d in 0..seg_in_row {
+                        let mut factor = offset.exp(((i * batch_size) as u64).into());
+                        for row in 0..dest_len {
+                            let row_idx = (row * p.row_width / ARR_SIZE) + d;
+                            dest[row_idx][0] = src[row_idx][0].mul_base(factor);
+                            dest[row_idx][1] = src[row_idx][1].mul_base(factor);
+                            dest[row_idx][2] = src[row_idx][2].mul_base(factor);
+                            dest[row_idx][3] = src[row_idx][3].mul_base(factor);
+                            // dest[row_idx][4] = src[row_idx][4].mul_base(factor);
+                            // dest[row_idx][5] = src[row_idx][5].mul_base(factor);
+                            // dest[row_idx][6] = src[row_idx][6].mul_base(factor);
+                            // dest[row_idx][7] = src[row_idx][7].mul_base(factor);
 
-                    let chunk_len = src.len() * ARR_SIZE / p.row_width;
-                    let arr_in_each_row = p.row_width / ARR_SIZE;
-
-                    for d in 0..chunk_len {
-                        let row_start = d * arr_in_each_row;
-                        for idx in 0..arr_in_each_row {
-                            dest[row_start + idx]
-                                .iter_mut()
-                                .zip(p.data[row_start + idx].iter())
-                                .for_each(|(dest, src)| {
-                                    *dest = *src * factor;
-                                });
+                            factor *= offset;
                         }
-                        factor *= offset;
                     }
                 });
-
-            let mut matrix_chunk = RowMatrixRef {
-                data: chunk,
-                row_width: p.row_width,
-            };
-            matrix_chunk.fft_in_place(twiddles);
+            for d in 0..p.row_width / ARR_SIZE {
+                let mut row_matrix_segment_i = RowMatrixSegment::new(chunk, p.row_width, d);
+                row_matrix_segment_i.split_radix_fft(twiddles);
+            }
         });
 
-    let mut matrix_result = RowMatrixRef {
-        data: result_vec_of_arrays.as_mut_slice(),
+    let mut matrix_result = RowMatrix {
+        data: result_vec_of_arrays,
         row_width: p.row_width,
     };
 
-    FftInputs::permute(&mut matrix_result);
-    result_vec_of_arrays
+    matrix_result.permute_concurrent();
+    matrix_result
 }
 
 /// Implementation of `FftInputs` for `RowMatrix`.
@@ -626,7 +653,7 @@ impl<E> FftInputs<E> for RowMatrix<E>
 where
     E: FieldElement,
 {
-    type ChunkItem<'b> = RowMatrixRef<'b, E> where Self: 'b;
+    type ChunkItem<'b> = RowMatrixSegment<'b, E> where Self: 'b;
     type ParChunksMut<'c> = MatrixChunksMut<'c, E> where Self: 'c;
 
     fn len(&self) -> usize {
@@ -664,21 +691,21 @@ where
             self.data[i_vec_idx][3] = temp[3] + self.data[j_vec_idx][3];
             self.data[j_vec_idx][3] = temp[3] - self.data[j_vec_idx][3];
 
-            // apply on 5th element of the array.
-            self.data[i_vec_idx][4] = temp[4] + self.data[j_vec_idx][4];
-            self.data[j_vec_idx][4] = temp[4] - self.data[j_vec_idx][4];
+            // // apply on 5th element of the array.
+            // self.data[i_vec_idx][4] = temp[4] + self.data[j_vec_idx][4];
+            // self.data[j_vec_idx][4] = temp[4] - self.data[j_vec_idx][4];
 
-            // apply on 6th element of the array.
-            self.data[i_vec_idx][5] = temp[5] + self.data[j_vec_idx][5];
-            self.data[j_vec_idx][5] = temp[5] - self.data[j_vec_idx][5];
+            // // apply on 6th element of the array.
+            // self.data[i_vec_idx][5] = temp[5] + self.data[j_vec_idx][5];
+            // self.data[j_vec_idx][5] = temp[5] - self.data[j_vec_idx][5];
 
-            // apply on 7th element of the array.
-            self.data[i_vec_idx][6] = temp[6] + self.data[j_vec_idx][6];
-            self.data[j_vec_idx][6] = temp[6] - self.data[j_vec_idx][6];
+            // // apply on 7th element of the array.
+            // self.data[i_vec_idx][6] = temp[6] + self.data[j_vec_idx][6];
+            // self.data[j_vec_idx][6] = temp[6] - self.data[j_vec_idx][6];
 
-            // apply on 8th element of the array.
-            self.data[i_vec_idx][7] = temp[7] + self.data[j_vec_idx][7];
-            self.data[j_vec_idx][7] = temp[7] - self.data[j_vec_idx][7];
+            // // apply on 8th element of the array.
+            // self.data[i_vec_idx][7] = temp[7] + self.data[j_vec_idx][7];
+            // self.data[j_vec_idx][7] = temp[7] - self.data[j_vec_idx][7];
         }
     }
 
@@ -699,58 +726,61 @@ where
             let temp = self.data[i_vec_idx];
 
             // apply of index 0 of twiddle.
-            self.data[j_vec_idx][0] = self.data[j_vec_idx][0] * twiddle;
+            self.data[j_vec_idx][0] *= twiddle;
             self.data[i_vec_idx][0] = temp[0] + self.data[j_vec_idx][0];
             self.data[j_vec_idx][0] = temp[0] - self.data[j_vec_idx][0];
 
             // apply of index 1 of twiddle.
-            self.data[j_vec_idx][1] = self.data[j_vec_idx][1] * twiddle;
+            self.data[j_vec_idx][1] *= twiddle;
             self.data[i_vec_idx][1] = temp[1] + self.data[j_vec_idx][1];
             self.data[j_vec_idx][1] = temp[1] - self.data[j_vec_idx][1];
 
             // apply of index 2 of twiddle.
-            self.data[j_vec_idx][2] = self.data[j_vec_idx][2] * twiddle;
+            self.data[j_vec_idx][2] *= twiddle;
             self.data[i_vec_idx][2] = temp[2] + self.data[j_vec_idx][2];
             self.data[j_vec_idx][2] = temp[2] - self.data[j_vec_idx][2];
 
             // apply of index 3 of twiddle.
-            self.data[j_vec_idx][3] = self.data[j_vec_idx][3] * twiddle;
+            self.data[j_vec_idx][3] *= twiddle;
             self.data[i_vec_idx][3] = temp[3] + self.data[j_vec_idx][3];
             self.data[j_vec_idx][3] = temp[3] - self.data[j_vec_idx][3];
 
-            // apply of index 4 of twiddle.
-            self.data[j_vec_idx][4] = self.data[j_vec_idx][4] * twiddle;
-            self.data[i_vec_idx][4] = temp[4] + self.data[j_vec_idx][4];
-            self.data[j_vec_idx][4] = temp[4] - self.data[j_vec_idx][4];
+            // // apply of index 4 of twiddle.
+            // self.data[j_vec_idx][4] *= twiddle;
+            // self.data[i_vec_idx][4] = temp[4] + self.data[j_vec_idx][4];
+            // self.data[j_vec_idx][4] = temp[4] - self.data[j_vec_idx][4];
 
-            // apply of index 5 of twiddle.
-            self.data[j_vec_idx][5] = self.data[j_vec_idx][5] * twiddle;
-            self.data[i_vec_idx][5] = temp[5] + self.data[j_vec_idx][5];
-            self.data[j_vec_idx][5] = temp[5] - self.data[j_vec_idx][5];
+            // // apply of index 5 of twiddle.
+            // self.data[j_vec_idx][5] *= twiddle;
+            // self.data[i_vec_idx][5] = temp[5] + self.data[j_vec_idx][5];
+            // self.data[j_vec_idx][5] = temp[5] - self.data[j_vec_idx][5];
 
-            // apply of index 6 of twiddle.
-            self.data[j_vec_idx][6] = self.data[j_vec_idx][6] * twiddle;
-            self.data[i_vec_idx][6] = temp[6] + self.data[j_vec_idx][6];
-            self.data[j_vec_idx][6] = temp[6] - self.data[j_vec_idx][6];
+            // // apply of index 6 of twiddle.
+            // self.data[j_vec_idx][6] *= twiddle;
+            // self.data[i_vec_idx][6] = temp[6] + self.data[j_vec_idx][6];
+            // self.data[j_vec_idx][6] = temp[6] - self.data[j_vec_idx][6];
 
-            // apply of index 7 of twiddle.
-            self.data[j_vec_idx][7] = self.data[j_vec_idx][7] * twiddle;
-            self.data[i_vec_idx][7] = temp[7] + self.data[j_vec_idx][7];
-            self.data[j_vec_idx][7] = temp[7] - self.data[j_vec_idx][7];
+            // // apply of index 7 of twiddle.
+            // self.data[j_vec_idx][7] *= twiddle;
+            // self.data[i_vec_idx][7] = temp[7] + self.data[j_vec_idx][7];
+            // self.data[j_vec_idx][7] = temp[7] - self.data[j_vec_idx][7];
         }
     }
 
     fn swap(&mut self, i: usize, j: usize) {
-        let arr_size = self.data[0].len();
+        let i = i * self.row_width / ARR_SIZE;
+        let j = j * self.row_width / ARR_SIZE;
 
-        let i_index = i * self.row_width / arr_size;
-        let j_index = j * self.row_width / arr_size;
+        let arr_in_row = self.row_width / ARR_SIZE;
 
-        for vec_idx in 0..self.row_width / arr_size {
-            let i_vec_idx = i_index + vec_idx;
-            let j_vec_idx = j_index + vec_idx;
-            self.data.swap(i_vec_idx, j_vec_idx);
-        }
+        let (first_row, second_row) = self.data.split_at_mut(j);
+        let (first_row, second_row) = (
+            &mut first_row[i..i + arr_in_row],
+            &mut second_row[0..arr_in_row],
+        );
+
+        // Swap the two rows.
+        first_row.swap_with_slice(second_row);
     }
 
     fn shift_by_series(&mut self, offset: E::BaseField, increment: E::BaseField, num_skip: usize) {
@@ -759,7 +789,7 @@ where
 
         let arr_in_row = self.row_width / ARR_SIZE;
 
-        for d in 0..self.len() {
+        for d in num_skip..self.len() {
             let row_start = d * arr_in_row;
             for idx in 0..arr_in_row {
                 // apply on index 0.
@@ -774,17 +804,17 @@ where
                 // apply on index 3.
                 self.data[row_start + idx][3] *= offset;
 
-                // apply on index 4.
-                self.data[row_start + idx][4] *= offset;
+                // // apply on index 4.
+                // self.data[row_start + idx][4] *= offset;
 
-                // apply on index 5.
-                self.data[row_start + idx][5] *= offset;
+                // // apply on index 5.
+                // self.data[row_start + idx][5] *= offset;
 
-                // apply on index 6.
-                self.data[row_start + idx][6] *= offset;
+                // // apply on index 6.
+                // self.data[row_start + idx][6] *= offset;
 
-                // apply on index 7.
-                self.data[row_start + idx][7] *= offset;
+                // // apply on index 7.
+                // self.data[row_start + idx][7] *= offset;
             }
             offset *= increment;
         }
@@ -810,54 +840,55 @@ where
                 // apply on index 3.
                 self.data[row_start + idx][3] *= offset;
 
-                // apply on index 4.
-                self.data[row_start + idx][4] *= offset;
+                // // apply on index 4.
+                // self.data[row_start + idx][4] *= offset;
 
-                // apply on index 5.
-                self.data[row_start + idx][5] *= offset;
+                // // apply on index 5.
+                // self.data[row_start + idx][5] *= offset;
 
-                // apply on index 6.
-                self.data[row_start + idx][6] *= offset;
+                // // apply on index 6.
+                // self.data[row_start + idx][6] *= offset;
 
-                // apply on index 7.
-                self.data[row_start + idx][7] *= offset;
+                // // apply on index 7.
+                // self.data[row_start + idx][7] *= offset;
             }
         }
     }
     // #[cfg(feature = "concurrent")]
-    fn par_mut_chunks(&mut self, chunk_size: usize) -> MatrixChunksMut<'_, E> {
-        MatrixChunksMut {
-            data: RowMatrixRef::new(&mut self.data, self.row_width),
-            chunk_size,
+    fn par_mut_chunks(&mut self, _chunk_size: usize) -> MatrixChunksMut<'_, E> {
+        unimplemented!("parallelism is not supported in this version of the library")
+    }
+}
+
+pub struct RowMatrixSegment<'a, E>
+where
+    E: FieldElement,
+{
+    data: &'a mut [[E; ARR_SIZE]],
+    row_width: usize,
+    init_col: usize,
+}
+
+impl<'a, E> RowMatrixSegment<'a, E>
+where
+    E: FieldElement,
+{
+    /// Creates a new RowMatrixSegment from a mutable reference to a slice of arrays.
+    pub fn new(data: &'a mut [[E; ARR_SIZE]], row_width: usize, init_col: usize) -> Self {
+        Self {
+            data,
+            row_width,
+            init_col,
         }
     }
-}
 
-pub struct RowMatrixRef<'a, E>
-where
-    E: FieldElement,
-{
-    data: &'a mut [[E; 8]],
-    row_width: usize,
-}
-
-impl<'a, E> RowMatrixRef<'a, E>
-where
-    E: FieldElement,
-{
-    /// Creates a new RowMatrixRef from a mutable reference to a slice of arrays.
-    pub fn new(data: &'a mut [[E; 8]], row_width: usize) -> Self {
-        Self { data, row_width }
-    }
-
-    ///
-    pub fn arr_size(&self) -> usize {
-        self.data[0].len()
+    fn len(&self) -> usize {
+        self.data.len() * ARR_SIZE / self.row_width
     }
 
     /// Safe mutable slice cast to avoid unnecessary lifetime complexity.
-    fn as_mut_slice(&mut self) -> &'a mut [[E; 8]] {
-        let ptr = self.data as *mut [[E; 8]];
+    fn as_mut_slice(&mut self) -> &'a mut [[E; ARR_SIZE]] {
+        let ptr = self.data as *mut [[E; ARR_SIZE]];
         // Safety: we still hold the mutable reference to the slice so no ownership rule is
         // violated.
         unsafe { ptr.as_mut().expect("the initial reference was not valid.") }
@@ -867,179 +898,151 @@ where
     /// chunk will contain elements at indices [0, split_point), and the second chunk
     /// will contain elements at indices [split_point, size).
     fn split_at_mut(&mut self, split_point: usize) -> (Self, Self) {
-        let at = split_point * self.row_width;
+        let at = split_point * self.row_width / ARR_SIZE;
         let (left, right) = self.as_mut_slice().split_at_mut(at);
-        let left = Self::new(left, self.row_width);
-        let right = Self::new(right, self.row_width);
+        let left = Self::new(left, self.row_width, self.init_col);
+        let right = Self::new(right, self.row_width, self.init_col);
         (left, right)
     }
 }
 
 /// Implementation of `FftInputs` for `RowMatrix`.
-impl<'a, E> FftInputs<E> for RowMatrixRef<'a, E>
+impl<'a, E> FftInputs<E> for RowMatrixSegment<'a, E>
 where
     E: FieldElement,
 {
-    type ChunkItem<'b> = RowMatrixRef<'b, E> where Self: 'b;
+    type ChunkItem<'b> = RowMatrixSegment<'b, E> where Self: 'b;
     type ParChunksMut<'c> = MatrixChunksMut<'c, E> where Self: 'c;
 
     fn len(&self) -> usize {
-        self.data.len() * self.data[0].len() / self.row_width
+        self.data.len() * ARR_SIZE / self.row_width
     }
 
     #[inline(always)]
     fn butterfly(&mut self, offset: usize, stride: usize) {
-        let i = offset;
-        let j = offset + stride;
+        let i = (offset * self.row_width) / ARR_SIZE + self.init_col;
+        let j = ((stride + offset) * self.row_width) / ARR_SIZE + self.init_col;
 
-        let arr_in_row = self.row_width / ARR_SIZE;
+        let temp = self.data[i];
 
-        let i_index = i * arr_in_row;
-        let j_index = j * arr_in_row;
+        // apply on index 0.
+        self.data[i][0] = temp[0] + self.data[j][0];
+        self.data[j][0] = temp[0] - self.data[j][0];
 
-        for vec_idx in 0..arr_in_row {
-            let i_vec_idx = i_index + vec_idx;
-            let j_vec_idx = j_index + vec_idx;
-            let temp = self.data[i_vec_idx];
+        // apply on index 1.
+        self.data[i][1] = temp[1] + self.data[j][1];
+        self.data[j][1] = temp[1] - self.data[j][1];
 
-            //  apply on 1st element of the array.
-            self.data[i_vec_idx][0] = temp[0] + self.data[j_vec_idx][0];
-            self.data[j_vec_idx][0] = temp[0] - self.data[j_vec_idx][0];
+        // apply on index 2.
+        self.data[i][2] = temp[2] + self.data[j][2];
+        self.data[j][2] = temp[2] - self.data[j][2];
 
-            // apply on 2nd element of the array.
-            self.data[i_vec_idx][1] = temp[1] + self.data[j_vec_idx][1];
-            self.data[j_vec_idx][1] = temp[1] - self.data[j_vec_idx][1];
+        // apply on index 3.
+        self.data[i][3] = temp[3] + self.data[j][3];
+        self.data[j][3] = temp[3] - self.data[j][3];
 
-            // apply on 3rd element of the array.
-            self.data[i_vec_idx][2] = temp[2] + self.data[j_vec_idx][2];
-            self.data[j_vec_idx][2] = temp[2] - self.data[j_vec_idx][2];
+        // // apply on index 4.
+        // self.data[i][4] = temp[4] + self.data[j][4];
+        // self.data[j][4] = temp[4] - self.data[j][4];
 
-            // apply on 4th element of the array.
-            self.data[i_vec_idx][3] = temp[3] + self.data[j_vec_idx][3];
-            self.data[j_vec_idx][3] = temp[3] - self.data[j_vec_idx][3];
+        // // apply on index 5.
+        // self.data[i][5] = temp[5] + self.data[j][5];
+        // self.data[j][5] = temp[5] - self.data[j][5];
 
-            // apply on 5th element of the array.
-            self.data[i_vec_idx][4] = temp[4] + self.data[j_vec_idx][4];
-            self.data[j_vec_idx][4] = temp[4] - self.data[j_vec_idx][4];
+        // // apply on index 6.
+        // self.data[i][6] = temp[6] + self.data[j][6];
+        // self.data[j][6] = temp[6] - self.data[j][6];
 
-            // apply on 6th element of the array.
-            self.data[i_vec_idx][5] = temp[5] + self.data[j_vec_idx][5];
-            self.data[j_vec_idx][5] = temp[5] - self.data[j_vec_idx][5];
-
-            // apply on 7th element of the array.
-            self.data[i_vec_idx][6] = temp[6] + self.data[j_vec_idx][6];
-            self.data[j_vec_idx][6] = temp[6] - self.data[j_vec_idx][6];
-
-            // apply on 8th element of the array.
-            self.data[i_vec_idx][7] = temp[7] + self.data[j_vec_idx][7];
-            self.data[j_vec_idx][7] = temp[7] - self.data[j_vec_idx][7];
-        }
+        // // apply on index 7.
+        // self.data[i][7] = temp[7] + self.data[j][7];
+        // self.data[j][7] = temp[7] - self.data[j][7];
     }
 
     #[inline(always)]
     fn butterfly_twiddle(&mut self, twiddle: E::BaseField, offset: usize, stride: usize) {
-        let i = offset;
-        let j = offset + stride;
+        let i = (offset * self.row_width) / ARR_SIZE + self.init_col;
+        let j = ((stride + offset) * self.row_width) / ARR_SIZE + self.init_col;
 
-        let twiddle = E::from(twiddle);
-        let arr_in_row = self.row_width / ARR_SIZE;
+        let temp = self.data[i];
 
-        let i_index = i * arr_in_row;
-        let j_index = j * arr_in_row;
+        // apply on index 0.
+        self.data[j][0] = self.data[j][0].mul_base(twiddle);
+        self.data[i][0] = temp[0] + self.data[j][0];
+        self.data[j][0] = temp[0] - self.data[j][0];
 
-        for vec_idx in 0..arr_in_row {
-            let i_vec_idx = i_index + vec_idx;
-            let j_vec_idx = j_index + vec_idx;
-            let temp = self.data[i_vec_idx];
+        // apply on index 1.
+        self.data[j][1] = self.data[j][1].mul_base(twiddle);
+        self.data[i][1] = temp[1] + self.data[j][1];
+        self.data[j][1] = temp[1] - self.data[j][1];
 
-            // apply of index 0 of twiddle.
-            self.data[j_vec_idx][0] = self.data[j_vec_idx][0] * twiddle;
-            self.data[i_vec_idx][0] = temp[0] + self.data[j_vec_idx][0];
-            self.data[j_vec_idx][0] = temp[0] - self.data[j_vec_idx][0];
+        // apply on index 2.
+        self.data[j][2] = self.data[j][2].mul_base(twiddle);
+        self.data[i][2] = temp[2] + self.data[j][2];
+        self.data[j][2] = temp[2] - self.data[j][2];
 
-            // apply of index 1 of twiddle.
-            self.data[j_vec_idx][1] = self.data[j_vec_idx][1] * twiddle;
-            self.data[i_vec_idx][1] = temp[1] + self.data[j_vec_idx][1];
-            self.data[j_vec_idx][1] = temp[1] - self.data[j_vec_idx][1];
+        // apply on index 3.
+        self.data[j][3] = self.data[j][3].mul_base(twiddle);
+        self.data[i][3] = temp[3] + self.data[j][3];
+        self.data[j][3] = temp[3] - self.data[j][3];
 
-            // apply of index 2 of twiddle.
-            self.data[j_vec_idx][2] = self.data[j_vec_idx][2] * twiddle;
-            self.data[i_vec_idx][2] = temp[2] + self.data[j_vec_idx][2];
-            self.data[j_vec_idx][2] = temp[2] - self.data[j_vec_idx][2];
+        // // apply on index 4.
+        // self.data[j][4] = self.data[j][4].mul_base(twiddle);
+        // self.data[i][4] = temp[4] + self.data[j][4];
+        // self.data[j][4] = temp[4] - self.data[j][4];
 
-            // apply of index 3 of twiddle.
-            self.data[j_vec_idx][3] = self.data[j_vec_idx][3] * twiddle;
-            self.data[i_vec_idx][3] = temp[3] + self.data[j_vec_idx][3];
-            self.data[j_vec_idx][3] = temp[3] - self.data[j_vec_idx][3];
+        // // apply on index 5.
+        // self.data[j][5] = self.data[j][5].mul_base(twiddle);
+        // self.data[i][5] = temp[5] + self.data[j][5];
+        // self.data[j][5] = temp[5] - self.data[j][5];
 
-            // apply of index 4 of twiddle.
-            self.data[j_vec_idx][4] = self.data[j_vec_idx][4] * twiddle;
-            self.data[i_vec_idx][4] = temp[4] + self.data[j_vec_idx][4];
-            self.data[j_vec_idx][4] = temp[4] - self.data[j_vec_idx][4];
+        // // apply on index 6.
+        // self.data[j][6] = self.data[j][6].mul_base(twiddle);
+        // self.data[i][6] = temp[6] + self.data[j][6];
+        // self.data[j][6] = temp[6] - self.data[j][6];
 
-            // apply of index 5 of twiddle.
-            self.data[j_vec_idx][5] = self.data[j_vec_idx][5] * twiddle;
-            self.data[i_vec_idx][5] = temp[5] + self.data[j_vec_idx][5];
-            self.data[j_vec_idx][5] = temp[5] - self.data[j_vec_idx][5];
-
-            // apply of index 6 of twiddle.
-            self.data[j_vec_idx][6] = self.data[j_vec_idx][6] * twiddle;
-            self.data[i_vec_idx][6] = temp[6] + self.data[j_vec_idx][6];
-            self.data[j_vec_idx][6] = temp[6] - self.data[j_vec_idx][6];
-
-            // apply of index 7 of twiddle.
-            self.data[j_vec_idx][7] = self.data[j_vec_idx][7] * twiddle;
-            self.data[i_vec_idx][7] = temp[7] + self.data[j_vec_idx][7];
-            self.data[j_vec_idx][7] = temp[7] - self.data[j_vec_idx][7];
-        }
+        // // apply on index 7.
+        // self.data[j][7] = self.data[j][7].mul_base(twiddle);
+        // self.data[i][7] = temp[7] + self.data[j][7];
+        // self.data[j][7] = temp[7] - self.data[j][7];
     }
 
     fn swap(&mut self, i: usize, j: usize) {
-        let arr_size = self.data[0].len();
+        let i = i * self.row_width / ARR_SIZE + self.init_col;
+        let j = j * self.row_width / ARR_SIZE + self.init_col;
 
-        let i_index = i * self.row_width / arr_size;
-        let j_index = j * self.row_width / arr_size;
-
-        for vec_idx in 0..self.row_width / arr_size {
-            let i_vec_idx = i_index + vec_idx;
-            let j_vec_idx = j_index + vec_idx;
-            self.data.swap(i_vec_idx, j_vec_idx);
-        }
+        self.data.swap(i, j);
     }
 
     fn shift_by_series(&mut self, offset: E::BaseField, increment: E::BaseField, num_skip: usize) {
         let increment = E::from(increment);
         let mut offset = E::from(offset);
 
-        let arr_in_row = self.row_width / ARR_SIZE;
+        for row in num_skip..self.len() {
+            let row_idx = (row * self.row_width / ARR_SIZE) + self.init_col;
+            // apply on index 0.
+            self.data[row_idx][0] *= offset;
 
-        for d in 0..self.len() {
-            let row_start = d * self.row_width / arr_in_row;
-            for idx in 0..arr_in_row {
-                // apply on index 0.
-                self.data[row_start + idx][0] *= offset;
+            // apply on index 1.
+            self.data[row_idx][1] *= offset;
 
-                // apply on index 1.
-                self.data[row_start + idx][1] *= offset;
+            // apply on index 2.
+            self.data[row_idx][2] *= offset;
 
-                // apply on index 2.
-                self.data[row_start + idx][2] *= offset;
+            // apply on index 3.
+            self.data[row_idx][3] *= offset;
 
-                // apply on index 3.
-                self.data[row_start + idx][3] *= offset;
+            // // apply on index 4.
+            // self.data[row_idx][4] *= offset;
 
-                // apply on index 4.
-                self.data[row_start + idx][4] *= offset;
+            // // apply on index 5.
+            // self.data[row_idx][5] *= offset;
 
-                // apply on index 5.
-                self.data[row_start + idx][5] *= offset;
+            // // apply on index 6.
+            // self.data[row_idx][6] *= offset;
 
-                // apply on index 6.
-                self.data[row_start + idx][6] *= offset;
+            // // apply on index 7.
+            // self.data[row_idx][7] *= offset;
 
-                // apply on index 7.
-                self.data[row_start + idx][7] *= offset;
-            }
             offset *= increment;
         }
     }
@@ -1047,44 +1050,41 @@ where
     fn shift_by(&mut self, offset: E::BaseField) {
         let offset = E::from(offset);
 
-        let arr_in_row = self.row_width / ARR_SIZE;
+        for row in 0..self.len() {
+            let row_idx = (row * self.row_width / ARR_SIZE) + self.init_col;
+            // apply on index 0.
+            self.data[row_idx][0] *= offset;
 
-        for d in 0..self.len() {
-            let row_start = d * self.row_width / arr_in_row;
-            for idx in 0..arr_in_row {
-                // apply on index 0.
-                self.data[row_start + idx][0] *= offset;
+            // apply on index 1.
+            self.data[row_idx][1] *= offset;
 
-                // apply on index 1.
-                self.data[row_start + idx][1] *= offset;
+            // apply on index 2.
+            self.data[row_idx][2] *= offset;
 
-                // apply on index 2.
-                self.data[row_start + idx][2] *= offset;
+            // apply on index 3.
+            self.data[row_idx][3] *= offset;
 
-                // apply on index 3.
-                self.data[row_start + idx][3] *= offset;
+            // // apply on index 4.
+            // self.data[row_idx][4] *= offset;
 
-                // apply on index 4.
-                self.data[row_start + idx][4] *= offset;
+            // // apply on index 5.
+            // self.data[row_idx][5] *= offset;
 
-                // apply on index 5.
-                self.data[row_start + idx][5] *= offset;
+            // // apply on index 6.
+            // self.data[row_idx][6] *= offset;
 
-                // apply on index 6.
-                self.data[row_start + idx][6] *= offset;
-
-                // apply on index 7.
-                self.data[row_start + idx][7] *= offset;
-            }
+            // // apply on index 7.
+            // self.data[row_idx][7] *= offset;
         }
     }
 
     // #[cfg(feature = "concurrent")]
     fn par_mut_chunks(&mut self, chunk_size: usize) -> MatrixChunksMut<'_, E> {
         MatrixChunksMut {
-            data: RowMatrixRef {
+            data: RowMatrixSegment {
                 data: self.as_mut_slice(),
                 row_width: self.row_width,
+                init_col: self.init_col,
             },
             chunk_size,
         }
@@ -1097,7 +1097,7 @@ pub struct MatrixChunksMut<'a, E>
 where
     E: FieldElement,
 {
-    data: RowMatrixRef<'a, E>,
+    data: RowMatrixSegment<'a, E>,
     chunk_size: usize,
 }
 
@@ -1126,7 +1126,7 @@ where
 }
 
 impl<'a, E: FieldElement> Iterator for MatrixChunksMut<'a, E> {
-    type Item = RowMatrixRef<'a, E>;
+    type Item = RowMatrixSegment<'a, E>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.len() == 0 {
@@ -1146,7 +1146,7 @@ impl<'a, E> ParallelIterator for MatrixChunksMut<'a, E>
 where
     E: FieldElement + Send,
 {
-    type Item = RowMatrixRef<'a, E>;
+    type Item = RowMatrixSegment<'a, E>;
 
     fn drive_unindexed<C>(self, consumer: C) -> C::Result
     where
@@ -1188,7 +1188,7 @@ where
     E: FieldElement,
 {
     chunk_size: usize,
-    data: RowMatrixRef<'a, E>,
+    data: RowMatrixSegment<'a, E>,
 }
 
 // #[cfg(feature = "concurrent")]
@@ -1196,7 +1196,7 @@ impl<'a, E> Producer for ChunksMutProducer<'a, E>
 where
     E: FieldElement,
 {
-    type Item = RowMatrixRef<'a, E>;
+    type Item = RowMatrixSegment<'a, E>;
     type IntoIter = MatrixChunksMut<'a, E>;
 
     fn into_iter(self) -> Self::IntoIter {
