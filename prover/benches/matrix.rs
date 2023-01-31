@@ -19,7 +19,7 @@ use winter_prover::{
 };
 
 const SIZE: usize = 524_288;
-const NUM_POLYS: [usize; 4] = [16, 32, 72, 96];
+const NUM_POLYS: [usize; 4] = [16, 32, 64, 96];
 
 fn interpolate_columns(c: &mut Criterion) {
     let mut group = c.benchmark_group("matrix_interpolate_columns");
@@ -192,9 +192,9 @@ fn evaluate_matrix(c: &mut Criterion) {
 
 criterion_group!(
     matrix_group,
-    interpolate_columns,
+    // interpolate_columns,
     interpolate_matrix,
-    evaluate_columns,
+    // evaluate_columns,
     evaluate_matrix
 );
 criterion_main!(matrix_group);

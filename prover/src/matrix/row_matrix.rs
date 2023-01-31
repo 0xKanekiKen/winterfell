@@ -552,10 +552,10 @@ where
                     chunk[row_idx][1] = p.data[row_idx][1].mul_base(factor);
                     chunk[row_idx][2] = p.data[row_idx][2].mul_base(factor);
                     chunk[row_idx][3] = p.data[row_idx][3].mul_base(factor);
-                    // chunk[row_idx][4] = p.data[row_idx][4].mul_base(factor);
-                    // chunk[row_idx][5] = p.data[row_idx][5].mul_base(factor);
-                    // chunk[row_idx][6] = p.data[row_idx][6].mul_base(factor);
-                    // chunk[row_idx][7] = p.data[row_idx][7].mul_base(factor);
+                    chunk[row_idx][4] = p.data[row_idx][4].mul_base(factor);
+                    chunk[row_idx][5] = p.data[row_idx][5].mul_base(factor);
+                    chunk[row_idx][6] = p.data[row_idx][6].mul_base(factor);
+                    chunk[row_idx][7] = p.data[row_idx][7].mul_base(factor);
 
                     factor *= offset;
                 }
@@ -624,10 +624,10 @@ where
                             dest[row_idx][1] = src[row_idx][1].mul_base(factor);
                             dest[row_idx][2] = src[row_idx][2].mul_base(factor);
                             dest[row_idx][3] = src[row_idx][3].mul_base(factor);
-                            // dest[row_idx][4] = src[row_idx][4].mul_base(factor);
-                            // dest[row_idx][5] = src[row_idx][5].mul_base(factor);
-                            // dest[row_idx][6] = src[row_idx][6].mul_base(factor);
-                            // dest[row_idx][7] = src[row_idx][7].mul_base(factor);
+                            dest[row_idx][4] = src[row_idx][4].mul_base(factor);
+                            dest[row_idx][5] = src[row_idx][5].mul_base(factor);
+                            dest[row_idx][6] = src[row_idx][6].mul_base(factor);
+                            dest[row_idx][7] = src[row_idx][7].mul_base(factor);
 
                             factor *= offset;
                         }
@@ -691,21 +691,21 @@ where
             self.data[i_vec_idx][3] = temp[3] + self.data[j_vec_idx][3];
             self.data[j_vec_idx][3] = temp[3] - self.data[j_vec_idx][3];
 
-            // // apply on 5th element of the array.
-            // self.data[i_vec_idx][4] = temp[4] + self.data[j_vec_idx][4];
-            // self.data[j_vec_idx][4] = temp[4] - self.data[j_vec_idx][4];
+            // apply on 5th element of the array.
+            self.data[i_vec_idx][4] = temp[4] + self.data[j_vec_idx][4];
+            self.data[j_vec_idx][4] = temp[4] - self.data[j_vec_idx][4];
 
-            // // apply on 6th element of the array.
-            // self.data[i_vec_idx][5] = temp[5] + self.data[j_vec_idx][5];
-            // self.data[j_vec_idx][5] = temp[5] - self.data[j_vec_idx][5];
+            // apply on 6th element of the array.
+            self.data[i_vec_idx][5] = temp[5] + self.data[j_vec_idx][5];
+            self.data[j_vec_idx][5] = temp[5] - self.data[j_vec_idx][5];
 
-            // // apply on 7th element of the array.
-            // self.data[i_vec_idx][6] = temp[6] + self.data[j_vec_idx][6];
-            // self.data[j_vec_idx][6] = temp[6] - self.data[j_vec_idx][6];
+            // apply on 7th element of the array.
+            self.data[i_vec_idx][6] = temp[6] + self.data[j_vec_idx][6];
+            self.data[j_vec_idx][6] = temp[6] - self.data[j_vec_idx][6];
 
-            // // apply on 8th element of the array.
-            // self.data[i_vec_idx][7] = temp[7] + self.data[j_vec_idx][7];
-            // self.data[j_vec_idx][7] = temp[7] - self.data[j_vec_idx][7];
+            // apply on 8th element of the array.
+            self.data[i_vec_idx][7] = temp[7] + self.data[j_vec_idx][7];
+            self.data[j_vec_idx][7] = temp[7] - self.data[j_vec_idx][7];
         }
     }
 
@@ -745,25 +745,25 @@ where
             self.data[i_vec_idx][3] = temp[3] + self.data[j_vec_idx][3];
             self.data[j_vec_idx][3] = temp[3] - self.data[j_vec_idx][3];
 
-            // // apply of index 4 of twiddle.
-            // self.data[j_vec_idx][4] *= twiddle;
-            // self.data[i_vec_idx][4] = temp[4] + self.data[j_vec_idx][4];
-            // self.data[j_vec_idx][4] = temp[4] - self.data[j_vec_idx][4];
+            // apply of index 4 of twiddle.
+            self.data[j_vec_idx][4] *= twiddle;
+            self.data[i_vec_idx][4] = temp[4] + self.data[j_vec_idx][4];
+            self.data[j_vec_idx][4] = temp[4] - self.data[j_vec_idx][4];
 
-            // // apply of index 5 of twiddle.
-            // self.data[j_vec_idx][5] *= twiddle;
-            // self.data[i_vec_idx][5] = temp[5] + self.data[j_vec_idx][5];
-            // self.data[j_vec_idx][5] = temp[5] - self.data[j_vec_idx][5];
+            // apply of index 5 of twiddle.
+            self.data[j_vec_idx][5] *= twiddle;
+            self.data[i_vec_idx][5] = temp[5] + self.data[j_vec_idx][5];
+            self.data[j_vec_idx][5] = temp[5] - self.data[j_vec_idx][5];
 
-            // // apply of index 6 of twiddle.
-            // self.data[j_vec_idx][6] *= twiddle;
-            // self.data[i_vec_idx][6] = temp[6] + self.data[j_vec_idx][6];
-            // self.data[j_vec_idx][6] = temp[6] - self.data[j_vec_idx][6];
+            // apply of index 6 of twiddle.
+            self.data[j_vec_idx][6] *= twiddle;
+            self.data[i_vec_idx][6] = temp[6] + self.data[j_vec_idx][6];
+            self.data[j_vec_idx][6] = temp[6] - self.data[j_vec_idx][6];
 
-            // // apply of index 7 of twiddle.
-            // self.data[j_vec_idx][7] *= twiddle;
-            // self.data[i_vec_idx][7] = temp[7] + self.data[j_vec_idx][7];
-            // self.data[j_vec_idx][7] = temp[7] - self.data[j_vec_idx][7];
+            // apply of index 7 of twiddle.
+            self.data[j_vec_idx][7] *= twiddle;
+            self.data[i_vec_idx][7] = temp[7] + self.data[j_vec_idx][7];
+            self.data[j_vec_idx][7] = temp[7] - self.data[j_vec_idx][7];
         }
     }
 
@@ -804,17 +804,17 @@ where
                 // apply on index 3.
                 self.data[row_start + idx][3] *= offset;
 
-                // // apply on index 4.
-                // self.data[row_start + idx][4] *= offset;
+                // apply on index 4.
+                self.data[row_start + idx][4] *= offset;
 
-                // // apply on index 5.
-                // self.data[row_start + idx][5] *= offset;
+                // apply on index 5.
+                self.data[row_start + idx][5] *= offset;
 
-                // // apply on index 6.
-                // self.data[row_start + idx][6] *= offset;
+                // apply on index 6.
+                self.data[row_start + idx][6] *= offset;
 
-                // // apply on index 7.
-                // self.data[row_start + idx][7] *= offset;
+                // apply on index 7.
+                self.data[row_start + idx][7] *= offset;
             }
             offset *= increment;
         }
@@ -924,22 +924,107 @@ where
         let j = ((stride + offset) * self.row_width) / ARR_SIZE + self.init_col;
 
         let temp = self.data[i];
+        let mut data_at_i = self.data[i];
+        let mut data_at_j = self.data[j];
 
         // apply on index 0.
-        self.data[i][0] = temp[0] + self.data[j][0];
-        self.data[j][0] = temp[0] - self.data[j][0];
+        let sum_0 = temp[0] + data_at_j[0];
+        let diff_0 = temp[0] - data_at_j[0];
+        data_at_i[0] = sum_0;
+        data_at_j[0] = diff_0;
 
         // apply on index 1.
-        self.data[i][1] = temp[1] + self.data[j][1];
-        self.data[j][1] = temp[1] - self.data[j][1];
+        let sum_1 = temp[1] + data_at_j[1];
+        let diff_1 = temp[1] - data_at_j[1];
+        data_at_i[1] = sum_1;
+        data_at_j[1] = diff_1;
 
         // apply on index 2.
-        self.data[i][2] = temp[2] + self.data[j][2];
-        self.data[j][2] = temp[2] - self.data[j][2];
+        let sum_2 = temp[2] + data_at_j[2];
+        let diff_2 = temp[2] - data_at_j[2];
+        data_at_i[2] = sum_2;
+        data_at_j[2] = diff_2;
 
         // apply on index 3.
-        self.data[i][3] = temp[3] + self.data[j][3];
-        self.data[j][3] = temp[3] - self.data[j][3];
+        let sum_3 = temp[3] + data_at_j[3];
+        let diff_3 = temp[3] - data_at_j[3];
+        data_at_i[3] = sum_3;
+        data_at_j[3] = diff_3;
+
+        // apply on index 4.
+        let sum_4 = temp[4] + data_at_j[4];
+        let diff_4 = temp[4] - data_at_j[4];
+        data_at_i[4] = sum_4;
+        data_at_j[4] = diff_4;
+
+        // apply on index 5.
+        let sum_5 = temp[5] + data_at_j[5];
+        let diff_5 = temp[5] - data_at_j[5];
+        data_at_i[5] = sum_5;
+        data_at_j[5] = diff_5;
+
+        // apply on index 6.
+        let sum_6 = temp[6] + data_at_j[6];
+        let diff_6 = temp[6] - data_at_j[6];
+        data_at_i[6] = sum_6;
+        data_at_j[6] = diff_6;
+
+        // apply on index 7.
+        let sum_7 = temp[7] + data_at_j[7];
+        let diff_7 = temp[7] - data_at_j[7];
+        data_at_i[7] = sum_7;
+        data_at_j[7] = diff_7;
+
+        // // apply on index 0.
+        // data_at_i[0] = temp[0] + data_at_j[0];
+        // data_at_j[0] = temp[0] - data_at_j[0];
+
+        // // apply on index 1.
+        // data_at_i[1] = temp[1] + data_at_j[1];
+        // data_at_j[1] = temp[1] - data_at_j[1];
+
+        // // apply on index 2.
+        // data_at_i[2] = temp[2] + data_at_j[2];
+        // data_at_j[2] = temp[2] - data_at_j[2];
+
+        // // apply on index 3.
+        // data_at_i[3] = temp[3] + data_at_j[3];
+        // data_at_j[3] = temp[3] - data_at_j[3];
+
+        // // apply on index 4.
+        // data_at_i[4] = temp[4] + data_at_j[4];
+        // data_at_j[4] = temp[4] - data_at_j[4];
+
+        // // apply on index 5.
+        // data_at_i[5] = temp[5] + data_at_j[5];
+        // data_at_j[5] = temp[5] - data_at_j[5];
+
+        // // apply on index 6.
+        // data_at_i[6] = temp[6] + data_at_j[6];
+        // data_at_j[6] = temp[6] - data_at_j[6];
+
+        // // apply on index 7.
+        // data_at_i[7] = temp[7] + data_at_j[7];
+        // data_at_j[7] = temp[7] - data_at_j[7];
+
+        // self.data[i] = data_at_i;
+        // self.data[j] = data_at_j;
+
+        // // apply on index 0.
+        // self.data[i][0] = temp[0] + self.data[j][0];
+        // self.data[j][0] = temp[0] - self.data[j][0];
+
+        // // apply on index 1.
+        // self.data[i][1] = temp[1] + self.data[j][1];
+        // self.data[j][1] = temp[1] - self.data[j][1];
+
+        // // apply on index 2.
+        // self.data[i][2] = temp[2] + self.data[j][2];
+        // self.data[j][2] = temp[2] - self.data[j][2];
+
+        // // apply on index 3.
+        // self.data[i][3] = temp[3] + self.data[j][3];
+        // self.data[j][3] = temp[3] - self.data[j][3];
 
         // // apply on index 4.
         // self.data[i][4] = temp[4] + self.data[j][4];
@@ -964,26 +1049,68 @@ where
         let j = ((stride + offset) * self.row_width) / ARR_SIZE + self.init_col;
 
         let temp = self.data[i];
+        let mut data_at_i = self.data[i];
+        let mut data_at_j = self.data[j];
 
         // apply on index 0.
-        self.data[j][0] = self.data[j][0].mul_base(twiddle);
-        self.data[i][0] = temp[0] + self.data[j][0];
-        self.data[j][0] = temp[0] - self.data[j][0];
+        data_at_i[0] = temp[0] + data_at_j[0].mul_base(twiddle);
+        data_at_j[0] = temp[0] - data_at_j[0].mul_base(twiddle);
 
         // apply on index 1.
-        self.data[j][1] = self.data[j][1].mul_base(twiddle);
-        self.data[i][1] = temp[1] + self.data[j][1];
-        self.data[j][1] = temp[1] - self.data[j][1];
+        data_at_i[1] = temp[1] + data_at_j[1].mul_base(twiddle);
+        data_at_j[1] = temp[1] - data_at_j[1].mul_base(twiddle);
 
         // apply on index 2.
-        self.data[j][2] = self.data[j][2].mul_base(twiddle);
-        self.data[i][2] = temp[2] + self.data[j][2];
-        self.data[j][2] = temp[2] - self.data[j][2];
+        data_at_i[2] = temp[2] + data_at_j[2].mul_base(twiddle);
+        data_at_j[2] = temp[2] - data_at_j[2].mul_base(twiddle);
 
         // apply on index 3.
-        self.data[j][3] = self.data[j][3].mul_base(twiddle);
-        self.data[i][3] = temp[3] + self.data[j][3];
-        self.data[j][3] = temp[3] - self.data[j][3];
+        // data_at_j[3] = data_at_j[3].mul_base(twiddle);
+        data_at_i[3] = temp[3] + data_at_j[3].mul_base(twiddle);
+        data_at_j[3] = temp[3] - data_at_j[3].mul_base(twiddle);
+
+        // apply on index 4.
+        // data_at_j[4] = data_at_j[4].mul_base(twiddle);
+        data_at_i[4] = temp[4] + data_at_j[4].mul_base(twiddle);
+        data_at_j[4] = temp[4] - data_at_j[4].mul_base(twiddle);
+
+        // apply on index 5.
+        // data_at_j[5] = data_at_j[5].mul_base(twiddle);
+        data_at_i[5] = temp[5] + data_at_j[5].mul_base(twiddle);
+        data_at_j[5] = temp[5] - data_at_j[5].mul_base(twiddle);
+
+        // apply on index 6.
+        // data_at_j[6] = data_at_j[6].mul_base(twiddle);
+        data_at_i[6] = temp[6] + data_at_j[6].mul_base(twiddle);
+        data_at_j[6] = temp[6] - data_at_j[6].mul_base(twiddle);
+
+        // apply on index 7.
+        // data_at_j[7] = data_at_j[7].mul_base(twiddle);
+        data_at_i[7] = temp[7] + data_at_j[7].mul_base(twiddle);
+        data_at_j[7] = temp[7] - data_at_j[7].mul_base(twiddle);
+
+        // self.data[i] = data_at_i;
+        // self.data[j] = data_at_j;
+
+        // // apply on index 0.
+        // self.data[j][0] = self.data[j][0].mul_base(twiddle);
+        // self.data[i][0] = temp[0] + self.data[j][0];
+        // self.data[j][0] = temp[0] - self.data[j][0];
+
+        // // apply on index 1.
+        // self.data[j][1] = self.data[j][1].mul_base(twiddle);
+        // self.data[i][1] = temp[1] + self.data[j][1];
+        // self.data[j][1] = temp[1] - self.data[j][1];
+
+        // // apply on index 2.
+        // self.data[j][2] = self.data[j][2].mul_base(twiddle);
+        // self.data[i][2] = temp[2] + self.data[j][2];
+        // self.data[j][2] = temp[2] - self.data[j][2];
+
+        // // apply on index 3.
+        // self.data[j][3] = self.data[j][3].mul_base(twiddle);
+        // self.data[i][3] = temp[3] + self.data[j][3];
+        // self.data[j][3] = temp[3] - self.data[j][3];
 
         // // apply on index 4.
         // self.data[j][4] = self.data[j][4].mul_base(twiddle);
@@ -1018,30 +1145,34 @@ where
         let mut offset = E::from(offset);
 
         for row in num_skip..self.len() {
-            let row_idx = (row * self.row_width / ARR_SIZE) + self.init_col;
+            let mut array_at_row = self.data[(row * self.row_width / ARR_SIZE) + self.init_col];
+
             // apply on index 0.
-            self.data[row_idx][0] *= offset;
+            array_at_row[0] *= offset;
 
             // apply on index 1.
-            self.data[row_idx][1] *= offset;
+            array_at_row[1] *= offset;
 
             // apply on index 2.
-            self.data[row_idx][2] *= offset;
+            array_at_row[2] *= offset;
 
             // apply on index 3.
-            self.data[row_idx][3] *= offset;
+            array_at_row[3] *= offset;
 
-            // // apply on index 4.
-            // self.data[row_idx][4] *= offset;
+            // apply on index 4.
+            array_at_row[4] *= offset;
 
-            // // apply on index 5.
-            // self.data[row_idx][5] *= offset;
+            // apply on index 5.
+            array_at_row[5] *= offset;
 
-            // // apply on index 6.
-            // self.data[row_idx][6] *= offset;
+            // apply on index 6.
+            array_at_row[6] *= offset;
 
-            // // apply on index 7.
-            // self.data[row_idx][7] *= offset;
+            // apply on index 7.
+            array_at_row[7] *= offset;
+
+            // update the array.
+            self.data[(row * self.row_width / ARR_SIZE) + self.init_col] = array_at_row;
 
             offset *= increment;
         }
@@ -1051,30 +1182,33 @@ where
         let offset = E::from(offset);
 
         for row in 0..self.len() {
-            let row_idx = (row * self.row_width / ARR_SIZE) + self.init_col;
+            let mut array_at_row = self.data[(row * self.row_width / ARR_SIZE) + self.init_col];
+
             // apply on index 0.
-            self.data[row_idx][0] *= offset;
+            array_at_row[0] *= offset;
 
             // apply on index 1.
-            self.data[row_idx][1] *= offset;
+            array_at_row[1] *= offset;
 
             // apply on index 2.
-            self.data[row_idx][2] *= offset;
+            array_at_row[2] *= offset;
 
             // apply on index 3.
-            self.data[row_idx][3] *= offset;
+            array_at_row[3] *= offset;
 
-            // // apply on index 4.
-            // self.data[row_idx][4] *= offset;
+            // apply on index 4.
+            array_at_row[4] *= offset;
 
-            // // apply on index 5.
-            // self.data[row_idx][5] *= offset;
+            // apply on index 5.
+            array_at_row[5] *= offset;
 
-            // // apply on index 6.
-            // self.data[row_idx][6] *= offset;
+            // apply on index 6.
+            array_at_row[6] *= offset;
 
-            // // apply on index 7.
-            // self.data[row_idx][7] *= offset;
+            // apply on index 7.
+            array_at_row[7] *= offset;
+
+            self.data[(row * self.row_width / ARR_SIZE) + self.init_col] = array_at_row;
         }
     }
 
