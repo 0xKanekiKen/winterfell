@@ -27,10 +27,18 @@ use rayon::{
     prelude::*,
 };
 
-// CONSTANTS
-// ================================================================================================
+#[macro_export]
+macro_rules! iter {
+    ($e: expr) => {{
+        // #[cfg(feature = "concurrent")]
+        // let result = $e.par_iter();
 
-pub const ARR_SIZE: usize = 8;
+        // #[cfg(not(feature = "concurrent"))]
+        let result = $e.iter();
+
+        result
+    }};
+}
 
 // ROWMAJOR MATRIX
 // ================================================================================================
@@ -55,35 +63,54 @@ where
     }
 
     pub fn from_polys(polys: &Matrix<E>, blowup_factor: usize) -> Self {
-        let rows = transpose(polys.clone());
-        let row_width = rows[0].len();
-        let flatten_rows = rows.into_iter().flatten().collect::<Vec<_>>();
-        let matrix = RowMatrix::new(flatten_rows, row_width);
+        let row_width = polys.num_cols();
+        let num_rows = polys.num_rows();
 
-        let twiddles = fft::get_twiddles::<E::BaseField>(polys.num_rows());
-        #[allow(unused_assignments)]
-        let mut result = RowMatrix::new(Vec::new(), polys.num_cols());
+        let twiddles = fft::get_twiddles::<E::BaseField>(polys.num_rows() * blowup_factor);
+        let domain_size = num_rows * blowup_factor;
+        let g = E::BaseField::get_root_of_unity(log2(domain_size));
+        let domain_offset = E::BaseField::GENERATOR;
 
-        if cfg!(feature = "concurrent") && matrix.num_rows() >= MIN_CONCURRENT_SIZE {
+        let mut result_vec_of_arrays =
+            unsafe { uninit_vector(num_rows * row_width * blowup_factor) };
+
+        let offsets = (0..num_rows)
+            .map(|_i| {
+                let idx = permute_index(blowup_factor, 0) as u64;
+                g.exp(idx.into()) * domain_offset
+            })
+            .collect::<Vec<_>>();
+
+        let time = std::time::Instant::now();
+
+        iter!(polys.columns).enumerate().for_each(|(i, row)| {
+            let mut factor = E::BaseField::ONE;
+            iter!(row).enumerate().for_each(|(j, elem)| {
+                result_vec_of_arrays[j * row_width + i] = elem.mul_base(factor);
+                factor *= offsets[j];
+            })
+        });
+
+        let transpose_time = time.elapsed().as_millis();
+        println!("Time to transpose: {:?}", transpose_time);
+
+        let mut row_matrix = RowMatrix::new(result_vec_of_arrays, row_width);
+
+        if cfg!(feature = "concurrent") && polys.num_rows() >= MIN_CONCURRENT_SIZE {
             {
                 // #[cfg(feature = "concurrent")]
-                result = Self::evaluate_poly_with_offset_concurrent(
-                    &matrix,
-                    &twiddles,
-                    E::BaseField::GENERATOR,
-                    blowup_factor,
-                );
+                // Self::evaluate_poly_with_offset_concurrent(
+                //     &matrix,
+                //     &twiddles,
+                //     E::BaseField::GENERATOR,
+                //     blowup_factor,
+                // );
             }
         } else {
-            result = Self::evaluate_poly_with_offset(
-                &matrix,
-                &twiddles,
-                E::BaseField::GENERATOR,
-                blowup_factor,
-            );
+            Self::evaluate_poly_with_offset(&mut row_matrix, &twiddles);
         }
 
-        result
+        row_matrix
     }
 
     // PUBLIC ACCESSORS
@@ -107,103 +134,15 @@ where
     // POLYNOMIAL EVALUATION
     // ================================================================================================
 
-    /// Evaluates polynomial `p` in-place over the domain of length `p.len()` in the field specified
-    /// by `B` using the FFT algorithm.
-    pub fn evaluate_poly(p: &mut RowMatrix<E>, twiddles: &[E::BaseField]) {
-        p.fft_in_place(twiddles);
-        p.permute();
-    }
-
     /// Evaluates polynomial `p` over the domain of length `p.len()` * `blowup_factor` shifted by
     /// `domain_offset` in the field specified `B` using the FFT algorithm and returns the result.
-    pub fn evaluate_poly_with_offset(
-        &self,
-        twiddles: &[E::BaseField],
-        domain_offset: E::BaseField,
-        blowup_factor: usize,
-    ) -> RowMatrix<E>
-    where
-        E: FieldElement,
-    {
-        let domain_size = self.len() * blowup_factor;
-        let g = E::BaseField::get_root_of_unity(log2(domain_size));
-        let mut result = unsafe { uninit_vector(domain_size * self.row_width) };
-
-        // for m in 0..self.num_cols() / ARR_SIZE {
-        result
-            .as_mut_slice()
-            .chunks_mut(self.len() * self.row_width)
-            .enumerate()
-            .for_each(|(i, chunk)| {
-                let idx = fft::permute_index(blowup_factor, i) as u64;
-                let offset = g.exp(idx.into()) * domain_offset;
-                let mut factor = E::BaseField::ONE;
-
-                let chunk_len = chunk.len() / self.row_width;
-                for d in 0..chunk_len {
-                    for i in 0..self.row_width {
-                        chunk[d * self.row_width + i] =
-                            self.data[d * self.row_width + i].mul_base(factor)
-                    }
-                    factor *= offset;
-                }
-                let mut matrix_chunk = RowMatrixRef {
-                    data: chunk,
-                    row_width: self.row_width,
-                };
-                FftInputs::fft_in_place(&mut matrix_chunk, twiddles);
-            });
-
-        let mut matrix_result = RowMatrix {
-            data: result,
-            row_width: self.row_width,
-        };
-
-        FftInputs::permute(&mut matrix_result);
-        matrix_result
-    }
-
-    // POLYNOMIAL INTERPOLATION
-    // ================================================================================================
-
-    /// Interpolates `evaluations` over a domain of length `evaluations.len()` in the field specified
-    /// `B` into a polynomial in coefficient form using the FFT algorithm.
-    pub fn interpolate_poly(evaluations: &mut RowMatrix<E>, inv_twiddles: &[E::BaseField]) {
-        let inv_length = E::BaseField::inv((evaluations.len() as u64).into());
-        evaluations.fft_in_place(inv_twiddles);
-        evaluations.shift_by(inv_length);
-        evaluations.permute();
-    }
-
-    /// Interpolates `evaluations` over a domain of length `evaluations.len()` and shifted by
-    /// `domain_offset` in the field specified by `B` into a polynomial in coefficient form using
-    /// the FFT algorithm.
-    pub fn interpolate_poly_with_offset(
-        evaluations: &mut RowMatrix<E>,
-        inv_twiddles: &[E::BaseField],
-        domain_offset: E::BaseField,
-    ) {
-        let offset = E::BaseField::inv((evaluations.len() as u64).into());
-        let domain_offset = E::BaseField::inv(domain_offset);
-
-        evaluations.fft_in_place(inv_twiddles);
-        evaluations.permute();
-        evaluations.shift_by_series(offset, domain_offset, 0);
+    pub fn evaluate_poly_with_offset(&mut self, twiddles: &[E::BaseField]) {
+        self.fft_in_place(twiddles);
+        self.permute();
     }
 
     // CONCURRENT EVALUATION
     // ================================================================================================
-
-    // #[cfg(feature = "concurrent")]
-    /// Evaluates polynomial `p` over the domain of length `p.len()` in the field specified `B` using
-    /// the FFT algorithm and returns the result.
-    ///
-    /// This function is only available when the `concurrent` feature is enabled.
-    pub fn evaluate_poly_concurrent(p: &mut RowMatrix<E>, twiddles: &[E::BaseField]) {
-        // TODO: implement concurrent evaluation using rayon across rows.
-        p.split_radix_fft(twiddles);
-        p.permute_concurrent();
-    }
 
     // #[cfg(feature = "concurrent")]
     /// Evaluates polynomial `p` over the domain of length `p.len()` * `blowup_factor` shifted by
@@ -264,57 +203,6 @@ where
 
         FftInputs::permute_concurrent(&mut matrix_result);
         matrix_result
-    }
-
-    // CONCURRENT INTERPOLATION
-    // ================================================================================================
-
-    // #[cfg(feature = "concurrent")]
-    /// Interpolates `evaluations` over a domain of length `evaluations.len()` in the field specified
-    /// `B` into a polynomial in coefficient form using the FFT algorithm.
-    ///
-    /// This function is only available when the `concurrent` feature is enabled.
-    pub fn interpolate_poly_concurrent(
-        evaluations: &mut RowMatrix<E>,
-        inv_twiddles: &[E::BaseField],
-    ) {
-        let inv_length = E::BaseField::inv((evaluations.len() as u64).into());
-
-        let batch_size = evaluations.len() / rayon::current_num_threads().next_power_of_two();
-        evaluations.split_radix_fft(inv_twiddles);
-        rayon::iter::IndexedParallelIterator::enumerate(evaluations.par_mut_chunks(batch_size))
-            .for_each(|(_i, mut batch)| {
-                batch.shift_by(inv_length);
-            });
-        evaluations.permute_concurrent();
-    }
-
-    // #[cfg(feature = "concurrent")]
-    /// Interpolates `evaluations` over a domain of length `evaluations.len()` and shifted by
-    /// `domain_offset` in the field specified by `B` into a polynomial in coefficient form using
-    /// the FFT algorithm.
-    ///
-    /// This function is only available when the `concurrent` feature is enabled.
-    pub fn interpolate_poly_with_offset_concurrent(
-        evaluations: &mut RowMatrix<E>,
-        inv_twiddles: &[E::BaseField],
-        domain_offset: E::BaseField,
-    ) {
-        let domain_offset = E::BaseField::inv(domain_offset);
-        let inv_length = E::BaseField::inv((evaluations.len() as u64).into());
-
-        let batch_size = evaluations.len()
-            / rayon::current_num_threads()
-                .next_power_of_two()
-                .min(evaluations.len());
-
-        evaluations.split_radix_fft(inv_twiddles);
-        evaluations.permute_concurrent();
-        rayon::iter::IndexedParallelIterator::enumerate(evaluations.par_mut_chunks(batch_size))
-            .for_each(|(i, mut batch)| {
-                let offset = domain_offset.exp(((i * batch_size) as u64).into()) * inv_length;
-                batch.shift_by_series(offset, domain_offset, 0);
-            });
     }
 }
 
