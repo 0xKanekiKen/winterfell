@@ -27,11 +27,11 @@ fn evaluate_columns(c: &mut Criterion) {
     for &num_poly in NUM_POLYS.iter() {
         let columns: Vec<Vec<BaseElement>> = (0..num_poly).map(|_| rand_vector(SIZE)).collect();
         let mut column_matrix = Matrix::new(columns);
-        let twiddles = fft::get_twiddles::<BaseElement>(SIZE);
         group.bench_function(BenchmarkId::new("with_offset", num_poly), |bench| {
             bench.iter_with_large_drop(|| {
+                let twiddles = fft::get_twiddles::<BaseElement>(SIZE);
                 iter_mut!(column_matrix.columns).for_each(|column| {
-                    fft::concurrent::evaluate_poly_with_offset(
+                    fft::serial::evaluate_poly_with_offset(
                         column.as_mut_slice(),
                         &twiddles,
                         BaseElement::GENERATOR,
@@ -52,32 +52,18 @@ fn evaluate_matrix(c: &mut Criterion) {
     let blowup_factor = 8;
 
     for &num_poly in NUM_POLYS.iter() {
-        let rows: Vec<Vec<BaseElement>> = (0..SIZE).map(|_| rand_vector(num_poly)).collect();
+        let columns: Vec<Vec<BaseElement>> = (0..num_poly).map(|_| rand_vector(SIZE)).collect();
+        let mut column_matrix = Matrix::new(columns);
 
-        let row_width = rows[0].len();
-        let flatten_table = rows.into_iter().flatten().collect::<Vec<_>>();
-        let vec = flatten_table
-            .chunks(ARR_SIZE)
-            .map(|x| x.try_into().unwrap())
-            .collect::<Vec<_>>();
-        let table = RowMatrix::new(vec, row_width);
-
-        let twiddles = fft::get_twiddles::<BaseElement>(SIZE);
+        let twiddles = fft::get_twiddles::<BaseElement>(SIZE * blowup_factor);
         group.bench_function(BenchmarkId::new("with_offset", num_poly), |bench| {
-            bench.iter_with_large_drop(|| {
-                evaluate_poly_with_offset_concurrent(
-                    &table,
-                    &twiddles,
-                    BaseElement::GENERATOR,
-                    blowup_factor,
-                )
-            });
+            bench.iter_with_large_drop(|| RowMatrix::from_polys(&column_matrix, blowup_factor));
         });
     }
     group.finish();
 }
 
-criterion_group!(matrix_group, evaluate_columns, evaluate_matrix);
+criterion_group!(matrix_group, evaluate_matrix, evaluate_columns);
 criterion_main!(matrix_group);
 
 #[macro_export]

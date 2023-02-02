@@ -4,22 +4,23 @@
 // LICENSE file in the root directory of this source tree.
 
 use crate::{
+    evaluate_poly_with_offset_concurrent,
     math::{
         fft::get_twiddles, fields::f64::BaseElement, get_power_series, log2, polynom, StarkField,
     },
-    matrix::{evaluate_poly_with_offset, evaluate_poly_with_offset_concurrent, transpose},
-    Matrix,
+    matrix::transpose,
+    Matrix, RowMatrix,
 };
 use rand_utils::rand_vector;
 use utils::collections::Vec;
 
 #[test]
 fn test_eval_poly_with_offset_matrix() {
-    let n = 64;
+    let n = 128;
     let num_polys = 64;
     let blowup_factor = 8;
     let mut columns: Vec<Vec<BaseElement>> = (0..num_polys).map(|_| rand_vector(n)).collect();
-    let row_matrix = transpose(&Matrix::new(columns.clone()));
+    let row_matrix = RowMatrix::from_polys(&Matrix::new(columns.clone()), blowup_factor);
 
     let offset = BaseElement::GENERATOR;
     let domain = build_domain(n * blowup_factor);
@@ -28,11 +29,9 @@ fn test_eval_poly_with_offset_matrix() {
     for p in columns.iter_mut() {
         *p = polynom::eval_many(p, &shifted_domain);
     }
-    let eval_col = transpose(&Matrix::new(columns));
-    let twiddles = get_twiddles::<BaseElement>(n);
-    let eval_matrix = evaluate_poly_with_offset(&row_matrix, &twiddles, offset, blowup_factor);
+    let eval_col = transpose(&Matrix::new(columns.clone()));
 
-    assert_eq!(eval_col.as_data(), eval_matrix.as_data());
+    assert_eq!(eval_col.as_data(), row_matrix.as_data());
 }
 
 // CONCURRENT TESTS

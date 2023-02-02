@@ -64,16 +64,45 @@ where
     }
 
     pub fn from_polys(polys: &Matrix<E>, blowup_factor: usize) -> Self {
-        let row_matrix = transpose(polys);
+        let row_width = polys.num_cols();
+        let num_rows = polys.num_rows();
 
-        let twiddles = fft::get_twiddles::<E::BaseField>(polys.num_rows());
-        #[allow(unused_assignments)]
-        let mut result = RowMatrix::new(Vec::new(), polys.num_cols());
+        let twiddles = fft::get_twiddles::<E::BaseField>(polys.num_rows() * blowup_factor);
+        let domain_size = num_rows * blowup_factor;
+        let g = E::BaseField::get_root_of_unity(log2(domain_size));
+        let domain_offset = E::BaseField::GENERATOR;
+
+        let mut result_vec_of_arrays = unsafe {
+            uninit_vector::<[E; ARR_SIZE]>(num_rows * row_width * blowup_factor / ARR_SIZE)
+        };
+
+        let offsets = (0..num_rows)
+            .map(|_i| {
+                let idx = permute_index(blowup_factor, 0) as u64;
+                g.exp(idx.into()) * domain_offset
+            })
+            .collect::<Vec<_>>();
+
+        let time = std::time::Instant::now();
+
+        iter!(polys.columns).enumerate().for_each(|(i, row)| {
+            let mut factor = E::BaseField::ONE;
+            iter!(row).enumerate().for_each(|(j, elem)| {
+                result_vec_of_arrays[(j * row_width + i) / ARR_SIZE][i % ARR_SIZE] =
+                    elem.mul_base(factor);
+                factor *= offsets[j];
+            })
+        });
+
+        let transpose_time = time.elapsed().as_millis();
+        println!("Time to transpose: {:?}", transpose_time);
+
+        let mut row_matrix = RowMatrix::new(result_vec_of_arrays, row_width);
 
         if cfg!(feature = "concurrent") && polys.num_rows() >= MIN_CONCURRENT_SIZE {
             {
                 // #[cfg(feature = "concurrent")]
-                result = evaluate_poly_with_offset_concurrent(
+                evaluate_poly_with_offset_concurrent(
                     &row_matrix,
                     &twiddles,
                     E::BaseField::GENERATOR,
@@ -81,15 +110,15 @@ where
                 );
             }
         } else {
-            result = evaluate_poly_with_offset(
-                &row_matrix,
-                &twiddles,
-                E::BaseField::GENERATOR,
-                blowup_factor,
-            );
+            evaluate_poly_with_offset(&mut row_matrix, &twiddles);
         }
+        println!("time so far: {:?}", time.elapsed().as_millis());
+        println!(
+            "time taken to evaluate: {:?}",
+            time.elapsed().as_millis() - transpose_time
+        );
 
-        result
+        row_matrix
     }
 
     // PUBLIC ACCESSORS
@@ -118,61 +147,24 @@ where
 
 /// Evaluates polynomial `p` over the domain of length `p.len()` * `blowup_factor` shifted by
 /// `domain_offset` in the field specified `B` using the FFT algorithm and returns the result.
-pub fn evaluate_poly_with_offset<E>(
-    p: &RowMatrix<E>,
-    twiddles: &[E::BaseField],
-    domain_offset: E::BaseField,
-    blowup_factor: usize,
-) -> RowMatrix<E>
+pub fn evaluate_poly_with_offset<E>(row_matrix: &mut RowMatrix<E>, twiddles: &[E::BaseField])
 where
     E: FieldElement,
 {
-    let domain_size = p.len() * blowup_factor;
-    let g = E::BaseField::get_root_of_unity(log2(domain_size));
+    let seg_in_row = row_matrix.row_width / ARR_SIZE;
 
-    let mut result_vec_of_arrays =
-        unsafe { uninit_vector::<[E; ARR_SIZE]>(domain_size * p.row_width / ARR_SIZE) };
-
-    result_vec_of_arrays
-        .chunks_mut(p.len() * p.row_width / ARR_SIZE)
-        .enumerate()
-        .for_each(|(i, chunk)| {
-            let idx = fft::permute_index(blowup_factor, i) as u64;
-            let offset = g.exp(idx.into()) * domain_offset;
-
-            let chunk_len = chunk.len() * ARR_SIZE / p.row_width;
-            let seg_in_row = p.row_width / ARR_SIZE;
-            for d in 0..seg_in_row {
-                let mut factor = E::BaseField::ONE;
-                for row in 0..chunk_len {
-                    let row_idx = (row * p.row_width / ARR_SIZE) + d;
-                    chunk[row_idx][0] = p.data[row_idx][0].mul_base(factor);
-                    chunk[row_idx][1] = p.data[row_idx][1].mul_base(factor);
-                    chunk[row_idx][2] = p.data[row_idx][2].mul_base(factor);
-                    chunk[row_idx][3] = p.data[row_idx][3].mul_base(factor);
-                    chunk[row_idx][4] = p.data[row_idx][4].mul_base(factor);
-                    chunk[row_idx][5] = p.data[row_idx][5].mul_base(factor);
-                    chunk[row_idx][6] = p.data[row_idx][6].mul_base(factor);
-                    chunk[row_idx][7] = p.data[row_idx][7].mul_base(factor);
-
-                    factor *= offset;
-                }
-                let mut matrix_chunk = RowMatrixSegment {
-                    data: chunk,
-                    row_width: p.row_width,
-                    init_col: d,
-                };
-                FftInputs::fft_in_place(&mut matrix_chunk, twiddles);
-            }
-        });
-
-    let mut matrix_result = RowMatrix {
-        data: result_vec_of_arrays,
-        row_width: p.row_width,
+    let mut matrix_segment = RowMatrixSegment {
+        data: row_matrix.data.as_mut_slice(),
+        row_width: row_matrix.row_width,
+        init_col: 0,
     };
 
-    FftInputs::permute(&mut matrix_result);
-    matrix_result
+    for seg_idx in 0..seg_in_row {
+        matrix_segment.update_segment(seg_idx);
+        matrix_segment.fft_in_place(twiddles);
+    }
+
+    row_matrix.permute();
 }
 
 // #[cfg(feature = "concurrent")]
@@ -482,6 +474,11 @@ where
 
     fn len(&self) -> usize {
         self.data.len() * ARR_SIZE / self.row_width
+    }
+
+    fn update_segment(&mut self, seg_idx: usize) {
+        assert!(seg_idx < self.row_width / ARR_SIZE);
+        self.init_col = seg_idx;
     }
 
     /// Safe mutable slice cast to avoid unnecessary lifetime complexity.
