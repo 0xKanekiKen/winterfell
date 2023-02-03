@@ -16,7 +16,7 @@ use utils::collections::Vec;
 
 #[test]
 fn test_eval_poly_with_offset_matrix() {
-    let n = 128;
+    let n = 1024 * 512;
     let num_polys = 64;
     let blowup_factor = 8;
     let mut columns: Vec<Vec<BaseElement>> = (0..num_polys).map(|_| rand_vector(n)).collect();

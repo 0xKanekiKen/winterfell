@@ -83,8 +83,6 @@ where
             })
             .collect::<Vec<_>>();
 
-        let time = std::time::Instant::now();
-
         iter!(polys.columns).enumerate().for_each(|(i, row)| {
             let mut factor = E::BaseField::ONE;
             iter!(row).enumerate().for_each(|(j, elem)| {
@@ -93,9 +91,6 @@ where
                 factor *= offsets[j];
             })
         });
-
-        let transpose_time = time.elapsed().as_millis();
-        println!("Time to transpose: {:?}", transpose_time);
 
         let mut row_matrix = RowMatrix::new(result_vec_of_arrays, row_width);
 
@@ -112,11 +107,6 @@ where
         } else {
             evaluate_poly_with_offset(&mut row_matrix, &twiddles);
         }
-        println!("time so far: {:?}", time.elapsed().as_millis());
-        println!(
-            "time taken to evaluate: {:?}",
-            time.elapsed().as_millis() - transpose_time
-        );
 
         row_matrix
     }
@@ -518,94 +508,113 @@ where
         let i = (offset * self.row_width) / ARR_SIZE + self.init_col;
         let j = ((stride + offset) * self.row_width) / ARR_SIZE + self.init_col;
 
-        let temp = self.data[i];
-        let mut data_at_i = self.data[i];
-        let mut data_at_j = self.data[j];
+        let data_at_i = unsafe {
+            (&mut self.data[i] as *mut [E; 8])
+                .as_mut()
+                .unwrap_unchecked()
+        };
+        let data_at_j = unsafe {
+            (&mut self.data[j] as *mut [E; 8])
+                .as_mut()
+                .unwrap_unchecked()
+        };
 
         // apply on index 0.
-        data_at_i[0] = temp[0] + data_at_j[0];
-        data_at_j[0] = temp[0] - data_at_j[0];
+        let temp = data_at_i[0];
+        data_at_i[0] = temp + data_at_j[0];
+        data_at_j[0] = temp - data_at_j[0];
 
         // apply on index 1.
-        data_at_i[1] = temp[1] + data_at_j[1];
-        data_at_j[1] = temp[1] - data_at_j[1];
+        let temp = data_at_i[1];
+        data_at_i[1] = temp + data_at_j[1];
+        data_at_j[1] = temp - data_at_j[1];
 
         // apply on index 2.
-        data_at_i[2] = temp[2] + data_at_j[2];
-        data_at_j[2] = temp[2] - data_at_j[2];
+        let temp = data_at_i[2];
+        data_at_i[2] = temp + data_at_j[2];
+        data_at_j[2] = temp - data_at_j[2];
 
         // apply on index 3.
-        data_at_i[3] = temp[3] + data_at_j[3];
-        data_at_j[3] = temp[3] - data_at_j[3];
+        let temp = data_at_i[3];
+        data_at_i[3] = temp + data_at_j[3];
+        data_at_j[3] = temp - data_at_j[3];
 
         // apply on index 4.
-        data_at_i[4] = temp[4] + data_at_j[4];
-        data_at_j[4] = temp[4] - data_at_j[4];
+        let temp = data_at_i[4];
+        data_at_i[4] = temp + data_at_j[4];
+        data_at_j[4] = temp - data_at_j[4];
 
         // apply on index 5.
-        data_at_i[5] = temp[5] + data_at_j[5];
-        data_at_j[5] = temp[5] - data_at_j[5];
+        let temp = data_at_i[5];
+        data_at_i[5] = temp + data_at_j[5];
+        data_at_j[5] = temp - data_at_j[5];
 
         // apply on index 6.
-        data_at_i[6] = temp[6] + data_at_j[6];
-        data_at_j[6] = temp[6] - data_at_j[6];
+        let temp = data_at_i[6];
+        data_at_i[6] = temp + data_at_j[6];
+        data_at_j[6] = temp - data_at_j[6];
 
         // apply on index 7.
-        data_at_i[7] = temp[7] + data_at_j[7];
-        data_at_j[7] = temp[7] - data_at_j[7];
-
-        self.data[i] = data_at_i;
-        self.data[j] = data_at_j;
+        let temp = data_at_i[7];
+        data_at_i[7] = temp + data_at_j[7];
+        data_at_j[7] = temp - data_at_j[7];
     }
 
-    #[inline(always)]
+    // #[inline(always)]
     fn butterfly_twiddle(&mut self, twiddle: E::BaseField, offset: usize, stride: usize) {
         let i = (offset * self.row_width) / ARR_SIZE + self.init_col;
         let j = ((stride + offset) * self.row_width) / ARR_SIZE + self.init_col;
 
-        let temp = self.data[i];
-        let mut data_at_i = self.data[i];
-        let mut data_at_j = self.data[j];
+        let data_at_i = unsafe {
+            (&mut self.data[i] as *mut [E; 8])
+                .as_mut()
+                .unwrap_unchecked()
+        };
+        let data_at_j = unsafe {
+            (&mut self.data[j] as *mut [E; 8])
+                .as_mut()
+                .unwrap_unchecked()
+        };
 
         // apply on index 0.
-        data_at_i[0] = temp[0] + data_at_j[0].mul_base(twiddle);
-        data_at_j[0] = temp[0] - data_at_j[0].mul_base(twiddle);
+        let temp = data_at_i[0];
+        data_at_i[0] = temp + data_at_j[0].mul_base(twiddle);
+        data_at_j[0] = temp - data_at_j[0].mul_base(twiddle);
 
         // apply on index 1.
-        data_at_i[1] = temp[1] + data_at_j[1].mul_base(twiddle);
-        data_at_j[1] = temp[1] - data_at_j[1].mul_base(twiddle);
+        let temp = data_at_i[1];
+        data_at_i[1] = temp + data_at_j[1].mul_base(twiddle);
+        data_at_j[1] = temp - data_at_j[1].mul_base(twiddle);
 
         // apply on index 2.
-        data_at_i[2] = temp[2] + data_at_j[2].mul_base(twiddle);
-        data_at_j[2] = temp[2] - data_at_j[2].mul_base(twiddle);
+        let temp = data_at_i[2];
+        data_at_i[2] = temp + data_at_j[2].mul_base(twiddle);
+        data_at_j[2] = temp - data_at_j[2].mul_base(twiddle);
 
         // apply on index 3.
-        // data_at_j[3] = data_at_j[3].mul_base(twiddle);
-        data_at_i[3] = temp[3] + data_at_j[3].mul_base(twiddle);
-        data_at_j[3] = temp[3] - data_at_j[3].mul_base(twiddle);
+        let temp = data_at_i[3];
+        data_at_i[3] = temp + data_at_j[3].mul_base(twiddle);
+        data_at_j[3] = temp - data_at_j[3].mul_base(twiddle);
 
         // apply on index 4.
-        // data_at_j[4] = data_at_j[4].mul_base(twiddle);
-        data_at_i[4] = temp[4] + data_at_j[4].mul_base(twiddle);
-        data_at_j[4] = temp[4] - data_at_j[4].mul_base(twiddle);
+        let temp = data_at_i[4];
+        data_at_i[4] = temp + data_at_j[4].mul_base(twiddle);
+        data_at_j[4] = temp - data_at_j[4].mul_base(twiddle);
 
         // apply on index 5.
-        // data_at_j[5] = data_at_j[5].mul_base(twiddle);
-        data_at_i[5] = temp[5] + data_at_j[5].mul_base(twiddle);
-        data_at_j[5] = temp[5] - data_at_j[5].mul_base(twiddle);
+        let temp = data_at_i[5];
+        data_at_i[5] = temp + data_at_j[5].mul_base(twiddle);
+        data_at_j[5] = temp - data_at_j[5].mul_base(twiddle);
 
         // apply on index 6.
-        // data_at_j[6] = data_at_j[6].mul_base(twiddle);
-        data_at_i[6] = temp[6] + data_at_j[6].mul_base(twiddle);
-        data_at_j[6] = temp[6] - data_at_j[6].mul_base(twiddle);
+        let temp = data_at_i[6];
+        data_at_i[6] = temp + data_at_j[6].mul_base(twiddle);
+        data_at_j[6] = temp - data_at_j[6].mul_base(twiddle);
 
         // apply on index 7.
-        // data_at_j[7] = data_at_j[7].mul_base(twiddle);
-        data_at_i[7] = temp[7] + data_at_j[7].mul_base(twiddle);
-        data_at_j[7] = temp[7] - data_at_j[7].mul_base(twiddle);
-
-        self.data[i] = data_at_i;
-        self.data[j] = data_at_j;
+        let temp = data_at_i[7];
+        data_at_i[7] = temp + data_at_j[7].mul_base(twiddle);
+        data_at_j[7] = temp - data_at_j[7].mul_base(twiddle);
     }
 
     fn swap(&mut self, i: usize, j: usize) {
