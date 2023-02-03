@@ -1,11 +1,25 @@
+// Copyright (c) Facebook, Inc. and its affiliates.
+//
+// This source code is licensed under the MIT license found in the
+// LICENSE file in the root directory of this source tree.
+
 use super::StarkDomain;
 use core::{iter::FusedIterator, slice};
 use crypto::{ElementHasher, MerkleTree};
-use math::{fft, polynom, FieldElement};
+use math::{
+    fft::{self, fft_inputs::FftInputs},
+    polynom, FieldElement,
+};
 use utils::{batch_iter_mut, collections::Vec, iter, iter_mut, uninit_vector};
 
-#[cfg(feature = "concurrent")]
-use utils::iterators::*;
+mod row_matrix;
+pub use row_matrix::*;
+
+// #[cfg(feature = "concurrent")]
+// use utils::iterators::*;
+
+#[cfg(test)]
+mod tests;
 
 // MATRIX
 // ================================================================================================
@@ -24,7 +38,7 @@ use utils::iterators::*;
 /// - Number of rows must be a power of two.
 #[derive(Debug, Clone)]
 pub struct Matrix<E: FieldElement> {
-    columns: Vec<Vec<E>>,
+    pub columns: Vec<Vec<E>>,
 }
 
 impl<E: FieldElement> Matrix<E> {

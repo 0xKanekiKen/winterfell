@@ -12,14 +12,16 @@
 //! `n` is the domain size.
 
 use crate::{
+    fft::fft_inputs::FftInputs,
     field::{FieldElement, StarkField},
     utils::{get_power_series, log2},
 };
 
-mod serial;
+pub mod fft_inputs;
+pub mod serial;
 
-#[cfg(feature = "concurrent")]
-mod concurrent;
+// #[cfg(feature = "concurrent")]
+pub mod concurrent;
 
 use utils::collections::Vec;
 
@@ -29,7 +31,7 @@ mod tests;
 // CONSTANTS
 // ================================================================================================
 const USIZE_BITS: usize = 0_usize.count_zeros() as usize;
-const MIN_CONCURRENT_SIZE: usize = 1024;
+pub const MIN_CONCURRENT_SIZE: usize = 1024;
 
 // POLYNOMIAL EVALUATION
 // ================================================================================================
@@ -433,8 +435,8 @@ where
         "multiplicative subgroup of size {} does not exist in the specified base field",
         values.len()
     );
-    serial::fft_in_place(values, twiddles, 1, 1, 0);
-    serial::permute(values);
+    FftInputs::fft_in_place(values, twiddles);
+    FftInputs::permute(values);
 }
 
 // TWIDDLES
@@ -589,11 +591,11 @@ fn permute<E: FieldElement>(v: &mut [E]) {
         #[cfg(feature = "concurrent")]
         concurrent::permute(v);
     } else {
-        serial::permute(v);
+        FftInputs::permute(v);
     }
 }
 
-fn permute_index(size: usize, index: usize) -> usize {
+pub fn permute_index(size: usize, index: usize) -> usize {
     debug_assert!(index < size);
     if size == 1 {
         return 0;
