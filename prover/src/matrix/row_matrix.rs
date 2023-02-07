@@ -3,8 +3,7 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
-use core::{cmp, f32::consts::PI};
-use std::time::Instant;
+use core::cmp;
 
 use crate::Matrix;
 
@@ -81,8 +80,6 @@ where
             })
             .collect::<Vec<_>>();
 
-        let time = std::time::Instant::now();
-
         iter!(polys.columns).enumerate().for_each(|(i, row)| {
             let mut factor = E::BaseField::ONE;
             iter!(row).enumerate().for_each(|(j, elem)| {
@@ -90,9 +87,6 @@ where
                 factor *= offsets[j];
             })
         });
-
-        let transpose_time = time.elapsed().as_millis();
-        println!("Time to transpose: {:?}", transpose_time);
 
         let mut row_matrix = RowMatrix::new(result_vec_of_arrays, row_width);
 
